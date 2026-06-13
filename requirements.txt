@@ -1,0 +1,25 @@
+torch
+transformers
+arabert
+scikit-learn
+xgboost
+pandas
+numpy
+
+# Speech Processing
+openai-whisper
+vosk
+
+# NLP & Text Processing
+spacy
+nltk
+
+# Web Framework (for API)
+fastapi
+uvicorn
+python-multipart
+
+# Utilities
+pydantic
+joblib
+python-dotenv
