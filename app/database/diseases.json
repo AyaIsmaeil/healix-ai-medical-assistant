@@ -1,0 +1,8 @@
+{
+  "flu": {
+    "symptoms": ["fever", "cough", "headache"]
+  },
+  "heart_attack": {
+    "symptoms": ["chest pain"]
+  }
+}
