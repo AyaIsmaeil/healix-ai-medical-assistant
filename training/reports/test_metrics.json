@@ -1,0 +1,16 @@
+{
+  "subset_accuracy": 0.9983664579362919,
+  "precision_micro": 1.0,
+  "recall_micro": 0.9993799090533279,
+  "f1_micro": 0.999689858368655,
+  "precision_macro": 1.0,
+  "recall_macro": 0.9988454760369654,
+  "f1_macro": 0.9994165517576502,
+  "precision_weighted": 1.0,
+  "recall_weighted": 0.9993799090533279,
+  "f1_weighted": 0.9996866381094119,
+  "n_test_samples": 3673,
+  "n_labels": 55,
+  "threshold": 0.5,
+  "model_dir": "ml_models\\healix_marbert_v2"
+}
