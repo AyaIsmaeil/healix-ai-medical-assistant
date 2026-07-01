@@ -30,6 +30,8 @@ Thumbs.db
 # Models (large files)
 models/*.pkl
 models/*.joblib
+ml_models/
+app/models/marbert_symptoms/
 
 # Temporary files
 temp/

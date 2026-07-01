@@ -1,24 +1,22 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from app.service.nlp_service import extract_symptoms
-from app.service.diagnosis_service import diagnose
+from app.services.marbert_service import predict_patient_symptoms
 
-router = APIRouter()
-
-
-class ChatRequest(BaseModel):
-    user_input: str
+router = APIRouter(
+    tags=["Patient Chat Analysis"]
+)
 
 
-@router.post("/")
-def chat(request: ChatRequest):
+class ChatMessageInput(BaseModel):
+    text: str
 
-    symptoms = extract_symptoms(request.user_input)
-    result = diagnose(symptoms)
+
+@router.post("/analyze")
+def analyze_patient_message(data: ChatMessageInput):
+    symptoms = predict_patient_symptoms(data.text)
 
     return {
-        "input": request.user_input,
-        "symptoms": symptoms,
-        "diagnosis": result
+        "status": "success",
+        "detected_symptoms": symptoms
     }
