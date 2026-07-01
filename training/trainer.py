@@ -56,15 +56,20 @@ def build_training_args(
 
 
 def build_trainer(model, args, train_dataset, eval_dataset, tokenizer, patience: int = 2) -> Trainer:
-    return Trainer(
+    # transformers v5 renamed the `tokenizer` argument to `processing_class`.
+    params = inspect.signature(Trainer.__init__).parameters
+    proc_key = "processing_class" if "processing_class" in params else "tokenizer"
+
+    kwargs = dict(
         model=model,
         args=args,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
-        tokenizer=tokenizer,
         compute_metrics=compute_metrics,
         callbacks=[EarlyStoppingCallback(early_stopping_patience=patience)],
     )
+    kwargs[proc_key] = tokenizer
+    return Trainer(**kwargs)
 
 
 def save_artifacts(
