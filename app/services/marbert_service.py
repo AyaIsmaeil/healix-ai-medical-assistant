@@ -1,378 +1,183 @@
 """
-MARBERT Service for Arabic Medical Text Processing.
+Healix - Model Loader
+تحميل وإدارة نموذج MARBERT المُدرّب على استخراج الأعراض (Token Classification / NER).
 
-Handles:
-- Model loading from trained checkpoints
-- Text tokenization and encoding
-- Symptom extraction inference
-- Confidence score calculation
-- Structured output generation
+يُحمّل النموذج والـ Tokenizer مرّة واحدة فقط، ويختار الجهاز (GPU/CPU) تلقائياً.
+التصميم قائم على الكائنات (Instance-based) لا على متغيّرات عامة، بحيث يُحقَن
+الكائن الوحيد عبر ``app.state`` ويُمرّر بالاعتمادية (Dependency Injection).
 """
 
-import json
 import logging
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+import os
+import threading
+from datetime import datetime, timezone
+from typing import Any, Dict, Optional
 
 import torch
-import numpy as np
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
-
-from config.app_config import config
-from app.utils.exceptions import (
-    ModelLoadingError,
-    TextProcessingError,
-    InferenceError,
+from transformers import (
+    AutoModelForTokenClassification,
+    AutoTokenizer,
+    PreTrainedModel,
+    PreTrainedTokenizerBase,
 )
-from app.utils.arabic_normalizer import normalize_arabic_text
+
+from app.config import Config
+from app.exceptions import ModelLoadError, ModelNotLoadedError
 
 logger = logging.getLogger(__name__)
+config = Config()
 
-
-class MARBERTService:
+class ModelLoader:
     """
-    Service for loading and managing MARBERT model.
-    
-    Handles model initialization, caching, and resource management.
+    مسؤول وحيد عن تحميل النموذج والـ Tokenizer وإتاحتهما.
+
+    - يُحمّل مرّة واحدة (idempotent) بحماية Lock لسلامة الخيوط (thread-safe).
+    - يختار GPU إن توفّر وسُمح به، وإلا CPU تلقائياً.
+    - لا يحتفظ بأي حالة عامة على مستوى الوحدة (No global variables).
     """
 
-    _instance: Optional["MARBERTService"] = None
-    _lock = False
+    def __init__(
+        self,
+        model_source: Optional[str] = None,
+        device: Optional[str] = None,
+        use_gpu: Optional[bool] = None,
+    ) -> None:
+        self._model_source = model_source or config.model_source()
+        self._use_gpu = config.USE_GPU if use_gpu is None else use_gpu
+        self._device = torch.device(device) if device else self._resolve_device()
 
-    def __new__(cls, *args, **kwargs):
-        """Implement singleton pattern for model service."""
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-        return cls._instance
+        self._model: Optional[PreTrainedModel] = None
+        self._tokenizer: Optional[PreTrainedTokenizerBase] = None
+        self._id2label: Optional[Dict[int, str]] = None
+        self._checkpoint: Optional[Dict[str, Any]] = None
 
-    def __init__(self, model_path: Optional[str] = None):
-        """
-        Initialize MARBERT service.
-        
-        Args:
-            model_path: Path to trained model directory.
-                       Defaults to config.settings.marbert.path
-        """
-        # Skip re-initialization if already initialized
-        if hasattr(self, "_initialized"):
-            return
+        self._loaded: bool = False
+        self._lock = threading.Lock()
 
-        self.model_path = Path(model_path or config.get("models.marbert.path", "ml_models/marbert_symptoms"))
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
-        self.model = None
-        self.tokenizer = None
-        self.symptom_labels = []
-        self.metadata = {}
-        
-        self._initialized = False
-        self._load_model()
+    # ------------------------------------------------------------------
+    # التحميل
+    # ------------------------------------------------------------------
+    def _resolve_device(self) -> torch.device:
+        """اختيار الجهاز تلقائياً: GPU إن توفّر وسُمح به، وإلا CPU."""
+        if self._use_gpu and torch.cuda.is_available():
+            return torch.device("cuda")
+        return torch.device("cpu")
 
-    def _load_model(self) -> None:
+    def load(self) -> "ModelLoader":
         """
-        Load trained MARBERT model and tokenizer.
-        
-        Raises:
-            ModelLoadingError: If model loading fails.
+        تحميل النموذج والـ Tokenizer مرّة واحدة.
+        آمن للاستدعاء المتكرّر ومن خيوط متعدّدة.
         """
-        try:
-            if not self.model_path.exists():
-                raise ModelLoadingError(
-                    model_name="MARBERT",
-                    details={"path": str(self.model_path), "reason": "Path does not exist"}
+        if self._loaded:
+            return self
+
+        with self._lock:
+            if self._loaded:  # فحص مزدوج بعد الحصول على القفل
+                return self
+
+            logger.info("🔄 تحميل نموذج استخراج الأعراض من: %s", self._model_source)
+            try:
+                tokenizer = AutoTokenizer.from_pretrained(
+                    self._model_source, use_fast=True
                 )
+                if not getattr(tokenizer, "is_fast", False):
+                    raise ModelLoadError(
+                        "المطلوب Tokenizer سريع (Fast) لدعم محاذاة الكلمات (word_ids)."
+                    )
 
-            logger.info(f"Loading MARBERT model from {self.model_path}")
-
-            # Load model and tokenizer
-            self.model = AutoModelForSequenceClassification.from_pretrained(
-                str(self.model_path),
-                trust_remote_code=True,
-            )
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                str(self.model_path),
-                trust_remote_code=True,
-            )
-
-            # Move model to device
-            self.model.to(self.device)
-            self.model.eval()
-
-            logger.info(f"Model moved to device: {self.device}")
-
-            # Load metadata
-            self._load_metadata()
-
-            self._initialized = True
-            logger.info("✅ MARBERT service initialized successfully")
-
-        except Exception as e:
-            logger.error(f"Failed to load MARBERT model: {str(e)}")
-            raise ModelLoadingError(
-                model_name="MARBERT",
-                details={"error": str(e), "path": str(self.model_path)}
-            )
-
-    def _load_metadata(self) -> None:
-        """
-        Load training metadata (symptom labels, thresholds, etc.).
-        
-        Looks for metadata.json or training_meta.json in model directory.
-        """
-        metadata_paths = [
-            self.model_path / "metadata.json",
-            self.model_path / "training_meta.json",
-            self.model_path / "labels.json",
-        ]
-
-        for metadata_path in metadata_paths:
-            if metadata_path.exists():
-                try:
-                    with open(metadata_path, "r", encoding="utf-8") as f:
-                        self.metadata = json.load(f)
-                    logger.info(f"Loaded metadata from {metadata_path}")
-                    break
-                except Exception as e:
-                    logger.warning(f"Failed to load metadata from {metadata_path}: {e}")
-
-        # Extract symptom columns if available
-        if "symptom_columns" in self.metadata:
-            self.symptom_labels = self.metadata["symptom_columns"]
-        elif "labels" in self.metadata:
-            self.symptom_labels = self.metadata["labels"]
-        else:
-            # Fallback: use model's number of labels
-            num_labels = self.model.config.num_labels
-            self.symptom_labels = [f"Symptom_{i}" for i in range(num_labels)]
-            logger.warning(f"No symptom labels found in metadata. Using default labels: {num_labels}")
-
-    def is_ready(self) -> bool:
-        """Check if service is ready for inference."""
-        return self._initialized and self.model is not None
-
-    def extract_symptoms(
-        self,
-        text: str,
-        threshold: Optional[float] = None,
-        return_probs: bool = False,
-    ) -> Dict[str, Any]:
-        """
-        Extract symptoms from Arabic medical text using MARBERT.
-        
-        Args:
-            text: Arabic medical text to process.
-            threshold: Confidence threshold (0-1). Defaults to config value.
-            return_probs: If True, return probability scores for all symptoms.
-        
-        Returns:
-            Dictionary containing:
-            - symptoms: List of detected symptoms with confidence
-            - raw_scores: Raw model outputs (if return_probs=True)
-            - processing_time_ms: Inference time
-            - model_info: Model version and metadata
-        
-        Raises:
-            TextProcessingError: If text processing fails.
-            InferenceError: If inference fails.
-        """
-        if not self.is_ready():
-            raise InferenceError(
-                message="MARBERT service not initialized",
-                model_type="MARBERT"
-            )
-
-        try:
-            # Normalize Arabic text
-            normalized_text = normalize_arabic_text(text)
-            
-            if not normalized_text:
-                raise TextProcessingError(
-                    message="Text is empty after normalization",
-                    details={"original_length": len(text)}
+                model = AutoModelForTokenClassification.from_pretrained(
+                    self._model_source
                 )
+                model.to(self._device)
+                model.eval()
 
-            logger.debug(f"Processing text: {normalized_text[:100]}...")
+                id2label = {int(k): str(v) for k, v in model.config.id2label.items()}
 
-            # Get threshold
-            if threshold is None:
-                threshold = float(self.metadata.get("threshold", config.get("inference.symptom_confidence_threshold", 0.3)))
+                self._tokenizer = tokenizer
+                self._model = model
+                self._id2label = id2label
+                self._checkpoint = self._fingerprint(id2label)
+                self._loaded = True
 
-            # Tokenize
-            import time
-            start_time = time.time()
+                logger.info(
+                    " تم تحميل النموذج | الجهاز: %s | عدد التصنيفات: %d | التصنيفات: %s | البصمة: %s",
+                    self._device,
+                    len(id2label),
+                    list(id2label.values()),
+                    self._checkpoint.get("weights_fingerprint"),
+                )
+                return self
 
-            inputs = self.tokenizer(
-                normalized_text,
-                max_length=512,
-                padding="max_length",
-                truncation=True,
-                return_tensors="pt",
-            )
+            except ModelLoadError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - نغلّفه في استثناء المجال
+                logger.exception(" فشل تحميل النموذج")
+                raise ModelLoadError(f"فشل تحميل النموذج: {exc}") from exc
 
-            # Move inputs to device
-            inputs = {k: v.to(self.device) for k, v in inputs.items()}
-
-            # Inference
-            with torch.no_grad():
-                outputs = self.model(**inputs)
-                logits = outputs.logits
-
-            # Apply sigmoid to get probabilities
-            probs = torch.sigmoid(logits).cpu().numpy()[0]
-            processing_time = (time.time() - start_time) * 1000
-
-            # Extract symptoms above threshold
-            symptoms = self._format_symptoms(probs, threshold)
-
-            result = {
-                "success": True,
-                "text": text,
-                "normalized_text": normalized_text,
-                "symptoms": symptoms,
-                "confidence_threshold": threshold,
-                "processing_time_ms": round(processing_time, 2),
-                "model_info": {
-                    "name": "MARBERT",
-                    "num_labels": len(self.symptom_labels),
-                    "training_date": self.metadata.get("training_date", "unknown"),
-                },
-            }
-
-            # Add raw scores if requested
-            if return_probs:
-                result["all_symptoms_scores"] = self._format_all_symptoms(probs)
-
-            logger.info(f"Extracted {len(symptoms)} symptoms from text")
-            return result
-
-        except TextProcessingError:
-            raise
-        except Exception as e:
-            logger.error(f"Inference failed: {str(e)}")
-            raise InferenceError(
-                message=f"Symptom extraction failed: {str(e)}",
-                model_type="MARBERT",
-                details={"error": str(e)}
-            )
-
-    def _format_symptoms(
-        self,
-        probs: np.ndarray,
-        threshold: float,
-    ) -> List[Dict[str, Any]]:
+    def _fingerprint(self, id2label: Dict[int, str]) -> Dict[str, Any]:
         """
-        Format detected symptoms into structured output.
-        
-        Args:
-            probs: Probability scores from model.
-            threshold: Confidence threshold.
-        
-        Returns:
-            List of symptom dictionaries with confidence scores.
+        بصمة نقطة التحقّق المُحمَّلة لإثبات "أي نموذج مُحمَّل فعلاً" في نقطة الصحّة.
+        تعتمد على حجم وتاريخ ملف الأوزان (فوري، يتغيّر عند استبدال النموذج).
         """
-        symptoms = []
-
-        for idx, prob in enumerate(probs):
-            if prob >= threshold:
-                symptom_name = self.symptom_labels[idx] if idx < len(self.symptom_labels) else f"Symptom_{idx}"
-                
-                # Determine confidence level
-                if prob >= 0.8:
-                    confidence_level = "High"
-                elif prob >= 0.5:
-                    confidence_level = "Medium"
-                else:
-                    confidence_level = "Low"
-
-                symptoms.append({
-                    "canonical": symptom_name,
-                    "english": symptom_name,  # Can be mapped to English later
-                    "confidence": round(float(prob), 4),
-                    "confidence_level": confidence_level,
-                })
-
-        # Sort by confidence descending
-        symptoms.sort(key=lambda x: x["confidence"], reverse=True)
-        return symptoms
-
-    def _format_all_symptoms(self, probs: np.ndarray) -> List[Dict[str, Any]]:
-        """
-        Format all symptoms with their confidence scores.
-        
-        Args:
-            probs: Probability scores from model.
-        
-        Returns:
-            List of all symptoms with scores.
-        """
-        all_symptoms = []
-
-        for idx, prob in enumerate(probs):
-            symptom_name = self.symptom_labels[idx] if idx < len(self.symptom_labels) else f"Symptom_{idx}"
-            all_symptoms.append({
-                "name": symptom_name,
-                "score": round(float(prob), 4),
-            })
-
-        return sorted(all_symptoms, key=lambda x: x["score"], reverse=True)
-
-    def __del__(self):
-        """Cleanup on deletion."""
-        if self.model is not None:
-            del self.model
-        if self.tokenizer is not None:
-            del self.tokenizer
-
-
-class SymptomExtractor:
-    """
-    High-level interface for symptom extraction.
-    
-    Wraps MARBERTService for cleaner API.
-    """
-
-    def __init__(self, model_path: Optional[str] = None):
-        """
-        Initialize symptom extractor.
-        
-        Args:
-            model_path: Path to trained model.
-        """
-        self.service = MARBERTService(model_path)
-
-    def extract(
-        self,
-        text: str,
-        confidence_threshold: Optional[float] = None,
-        include_all_scores: bool = False,
-    ) -> Dict[str, Any]:
-        """
-        Extract symptoms from text.
-        
-        Args:
-            text: Arabic medical text.
-            confidence_threshold: Threshold for symptom detection.
-            include_all_scores: Include scores for all symptoms.
-        
-        Returns:
-            Extraction results.
-        """
-        return self.service.extract_symptoms(
-            text=text,
-            threshold=confidence_threshold,
-            return_probs=include_all_scores,
-        )
-
-    def get_symptom_labels(self) -> List[str]:
-        """Get list of all symptom labels."""
-        return self.service.symptom_labels
-
-    def get_model_info(self) -> Dict[str, Any]:
-        """Get model information."""
-        return {
-            "name": "MARBERT",
-            "initialized": self.service.is_ready(),
-            "device": str(self.service.device),
-            "num_symptoms": len(self.service.symptom_labels),
-            "metadata": self.service.metadata,
+        info: Dict[str, Any] = {
+            "source": self._model_source,
+            "num_labels": len(id2label),
+            "labels": list(id2label.values()),
+            "weights_file": None,
+            "weights_size_bytes": None,
+            "weights_mtime": None,
+            "weights_fingerprint": None,
         }
+        weights = os.path.join(self._model_source, "model.safetensors")
+        if os.path.isfile(weights):
+            stat = os.stat(weights)
+            info["weights_file"] = "model.safetensors"
+            info["weights_size_bytes"] = stat.st_size
+            info["weights_mtime"] = datetime.fromtimestamp(
+                stat.st_mtime, tz=timezone.utc
+            ).isoformat()
+            # بصمة مدمجة (حجم-تاريخ) تكفي لتمييز نقطة التحقّق دون قراءة 650MB.
+            info["weights_fingerprint"] = f"{stat.st_size}-{int(stat.st_mtime)}"
+        else:
+            # مصدر بعيد (Hugging Face) — المُعرّف نفسه هو البصمة.
+            info["weights_fingerprint"] = self._model_source
+        return info
+
+    # ------------------------------------------------------------------
+    # الوصول للموارد
+    # ------------------------------------------------------------------
+    def _ensure_loaded(self) -> None:
+        if not self._loaded:
+            raise ModelNotLoadedError("النموذج غير مُحمّل. استدعِ load() أولاً.")
+
+    @property
+    def is_loaded(self) -> bool:
+        return self._loaded
+
+    @property
+    def device(self) -> torch.device:
+        return self._device
+
+    @property
+    def model(self) -> PreTrainedModel:
+        self._ensure_loaded()
+        return self._model
+
+    @property
+    def tokenizer(self) -> PreTrainedTokenizerBase:
+        self._ensure_loaded()
+        return self._tokenizer
+
+    @property
+    def id2label(self) -> Dict[int, str]:
+        self._ensure_loaded()
+        return self._id2label
+
+    @property
+    def model_source(self) -> str:
+        return self._model_source
+
+    @property
+    def checkpoint(self) -> Optional[Dict[str, Any]]:
+        """بصمة نقطة التحقّق المُحمَّلة (لعرضها في نقطة الصحّة)."""
+        return self._checkpoint
