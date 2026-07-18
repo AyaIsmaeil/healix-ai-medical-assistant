@@ -1,39 +1,72 @@
+# ============================================
+# Healix - Git Ignore
+# ============================================
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+*.log
+
+# Virtual Environment
 venv/
 env/
 ENV/
 .venv/
 
-# Python cache
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-
 # IDE
 .vscode/
 .idea/
-*.sublime-*
+*.swp
+*.swo
+*~
 
-# Environment variables
+# Data files
+data/*.csv
+data/*.xlsx
+data/*.json
+!data/category_info.json
+app/data/**/*.csv
+app/data/**/*.xlsx
+app/data/**/*.json
+app/data/**/*.m4a
+!app/data/category_info.json
+
+# Model files
+models/*.bin
+models/*.pt
+models/marbert_model/
+!models/marbert_model/category_info.json
+
+# Trained MARBERT NER weights (large — keep out of git)
+*.safetensors
+app/models/marbert-ner/
+
+# Environment
 .env
 .env.local
 .env.production
+app/.env
 
-# Logs
-*.log
-logs/
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
 
-# OS files
+# OS
 .DS_Store
 Thumbs.db
 
-# Models (large files)
-models/*.pkl
-models/*.joblib
-ml_models/
-app/models/marbert_symptoms/
-
 # Temporary files
-temp/
-tmp/
 *.tmp
+*.temp
+logs/
+
+docs/*

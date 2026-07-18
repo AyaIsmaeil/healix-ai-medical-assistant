@@ -1,28 +1,32 @@
+"""
+Healix - Speech Schemas
+نماذج الطلب/الاستجابة لتفريغ الصوت (Whisper Speech-to-Text).
+"""
+
+from typing import Optional
+
 from pydantic import BaseModel, Field, HttpUrl, model_validator
 
 
 class SpeechToTextRequest(BaseModel):
-    audio_path: str | None = Field(
-        default=None,
-        description="Absolute path to an audio file on the shared filesystem.",
+    """طلب تفريغ صوت — يُرسَل مسار محلي أو رابط، أحدهما حصراً."""
+
+    audio_path: Optional[str] = Field(
+        default=None, description="مسار مطلق لملف صوتي على نفس الخادم"
     )
-    audio_url: HttpUrl | None = Field(
-        default=None,
-        description="Public or signed URL to download the audio file.",
+    audio_url: Optional[HttpUrl] = Field(
+        default=None, description="رابط لملف صوتي يُنزّل ثم يُفرَّغ"
     )
 
     @model_validator(mode="after")
-    def validate_audio_source(self) -> "SpeechToTextRequest":
-        has_path = bool(self.audio_path and self.audio_path.strip())
-        has_url = self.audio_url is not None
-
-        if not has_path and not has_url:
-            raise ValueError("Either audio_path or audio_url must be provided.")
-        if has_path and has_url:
-            raise ValueError("Provide either audio_path or audio_url, not both.")
+    def _exactly_one_source(self) -> "SpeechToTextRequest":
+        if bool(self.audio_path) == bool(self.audio_url):
+            raise ValueError("يجب تحديد audio_path أو audio_url (واحد فقط لا كلاهما).")
         return self
 
 
 class SpeechToTextResponse(BaseModel):
+    """استجابة التفريغ."""
+
     success: bool = True
     text: str

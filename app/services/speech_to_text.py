@@ -16,7 +16,7 @@ from app.config import (
     WHISPER_LANGUAGE,
     WHISPER_MODEL,
 )
-from app.core.exceptions import (
+from app.exceptions import (
     AudioDownloadError,
     AudioNotFoundError,
     AudioTooLargeError,
