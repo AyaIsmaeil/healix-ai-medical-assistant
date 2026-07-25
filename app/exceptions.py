@@ -67,3 +67,34 @@ class AudioDownloadError(SpeechError):
 
 class TranscriptionError(SpeechError):
     """فشل التفريغ النصّي بواسطة Whisper."""
+
+
+# ----------------------------------------------------------------------
+# أخطاء محرك التقييم (Assessment Engine — Phase 3.1)
+# ----------------------------------------------------------------------
+class AssessmentError(HealixError):
+    """الأساس لأخطاء محرك التقييم."""
+
+
+class FeatureExtractionError(AssessmentError):
+    """يُرفع عند فشل استخراج الميزات (قاعدي أو عبر LLM) بشكل غير قابل للتعافي."""
+
+
+class FeatureValidationError(HealixError):
+    """يُرفع عند فشل طبقة التحقّق من الميزات (Phase 3.2).
+
+    يغطّي حالتين مترابطتين: (1) قاموس قواعد التحقّق مشوّه أو غير موجود عند
+    الإقلاع (DictionaryLoader)، و(2) غياب معلومة سريرية جوهرية وقت التحقّق
+    الفعلي (FeatureValidator) — أي حقل اختياري غير صالح يُعالَج بفشل ناعم
+    (تصحيح/null) بلا رفع استثناء."""
+
+
+class AssessmentExplanationError(AssessmentError):
+    """يُرفع عند فشل تحليل مخرجات الـLLM لتفسير التقييم (Phase 3.8) إلى JSON
+    صالح بالعقد المطلوب (المفاتيح الأربعة نصوصاً غير فارغة).
+
+    يرث من ``AssessmentError`` (ومن ثمّ ``HealixError``) ليُشغِّل آلية إعادة
+    المحاولة + التلقين المدمجة بمزوّد الـLLM (التي تلتقط ``HealixError``).
+    ملاحظة: خدمة ``AssessmentExplainer`` تلتقط هذا الخطأ وتتدهور بلطف إلى
+    تفسير حتمي بديل — فلا يتسرّب هذا الاستثناء للراوت ولا يُسقط التقييم
+    المحسوب سلفاً (نفس فلسفة التدهور اللطيف بـ``LLMFeatureExtractor``)."""

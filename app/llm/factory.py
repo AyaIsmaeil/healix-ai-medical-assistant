@@ -6,6 +6,7 @@ Healix - LLM Provider Factory
 from __future__ import annotations
 
 import logging
+from typing import Any, Callable, Dict, Optional
 
 from app.config import config
 from app.domain.ports import LLMProvider
@@ -15,7 +16,11 @@ from app.llm.mock_provider import MockLLMProvider
 logger = logging.getLogger(__name__)
 
 
-def build_llm_provider() -> LLMProvider:
+def build_llm_provider(
+    response_schema: Optional[Dict[str, Any]] = None,
+    response_validator: Optional[Callable[[str], Any]] = None,
+    response_format_hint: Optional[str] = None,
+) -> LLMProvider:
     """
     بناء مزوّد الـ LLM المُهيّأ في الإعدادات (LLM_PROVIDER).
 
@@ -24,6 +29,11 @@ def build_llm_provider() -> LLMProvider:
     - "qwen_openrouter" → Qwen3 عبر OpenRouter API.
 
     تبديل المزوّد = تغيير الإعدادات فقط؛ لا يتغيّر أي منطق أعمال.
+
+    المعاملات الثلاثة اختيارية وتُمرَّر فقط لمزوّد qwen_openrouter (عقد JSON
+    مخصَّص لكل مستدعٍ — مثلاً محرك التقييم بعقد مختلف عن محرك المقابلة).
+    استدعاء ``build_llm_provider()`` بلا معاملات (كما يفعل محرك المقابلة
+    الحالي) يُعطي بالضبط نفس السلوك السابق — توافق خلفي كامل.
     """
     provider_name = (config.LLM_PROVIDER or "mock").strip().lower()
 
@@ -35,7 +45,11 @@ def build_llm_provider() -> LLMProvider:
         from app.llm.openrouter_provider import QwenOpenRouterProvider
 
         try:
-            provider = QwenOpenRouterProvider()
+            provider = QwenOpenRouterProvider(
+                response_schema=response_schema,
+                response_validator=response_validator,
+                response_format_hint=response_format_hint,
+            )
         except LLMProviderError as exc:
             # تعذّر تهيئة OpenRouter (مثلاً مفتاح مفقود): رجوع اختياري للوهمي.
             if config.LLM_FALLBACK_TO_MOCK:

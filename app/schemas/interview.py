@@ -1,6 +1,15 @@
 """
-Healix - Interview Schemas
-نماذج الطلب والاستجابة لمحرك المحادثة (طبقة الـ API).
+Healix - Clinical Interview Schemas
+نماذج الطلب والاستجابة لمحرك المقابلة السريرية (طبقة الـ API).
+
+توافق خلفي مقصود: حقول الاستجابة القديمة (``finished`` و``question``
+و``next_slot`` و``symptoms``...) باقية كما هي بنفس أسمائها ودلالاتها، وأُضيفت
+إليها حقول السجل الطبي المنظَّم الجديدة. الإضافة فقط — لا إعادة تسمية ولا حذف —
+حتى لا ينكسر أي مستهلك حالي (تكامل Laravel).
+
+``interview_complete`` و``next_question`` مرآتان صريحتان لـ``finished``
+و``question``: العقد الجديد يستخدمهما، والقديم يبقى صالحاً. تُملأ الاثنتان دائماً
+بنفس القيمة، فلا مصدر حقيقة مزدوج.
 """
 
 from typing import List, Optional
@@ -11,6 +20,8 @@ from pydantic import BaseModel, Field
 class SymptomOut(BaseModel):
     text: str
     negated: bool
+    # أُضيف مع معمارية LLM-first (إضافة غير كاسرة؛ المستهلك القديم يتجاهله).
+    confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
 
 
 class InterviewTurnRequest(BaseModel):
@@ -36,8 +47,9 @@ class InterviewTurnRequest(BaseModel):
 
 
 class InterviewTurnResponse(BaseModel):
-    """استجابة الدور: سؤال عربي واحد أو إشارة الانتهاء."""
+    """استجابة الدور: السجل الطبي المنظَّم + سؤال عربي واحد أو إشارة الانتهاء."""
 
+    # --- العقد الأصلي (يبقى كما هو، لا يتغيّر) ---
     session_id: str
     finished: bool
     next_slot: Optional[str] = None
@@ -45,3 +57,28 @@ class InterviewTurnResponse(BaseModel):
     turn: int
     status: str
     symptoms: List[SymptomOut] = Field(default_factory=list)
+
+    # --- السجل الطبي المنظَّم (إضافة معمارية LLM-first) ---
+    chief_complaint: Optional[str] = Field(
+        default=None, description="الشكوى الرئيسية كما استخلصها وكيل المقابلة"
+    )
+    severity: Optional[str] = Field(default=None, description="شدّة العرَض كما ذُكرت")
+    duration: Optional[str] = Field(default=None, description="مدّة العرَض كما ذُكرت")
+    body_location: Optional[str] = Field(
+        default=None, description="موضع العرَض في الجسم كما ذُكر"
+    )
+    medications: List[str] = Field(default_factory=list)
+    allergies: List[str] = Field(default_factory=list)
+    chronic_conditions: List[str] = Field(default_factory=list)
+    family_history: List[str] = Field(default_factory=list)
+    missing_fields: List[str] = Field(
+        default_factory=list, description="المعلومات المهمّة الناقصة الآن"
+    )
+
+    # --- مرآتان للعقد الجديد (نفس قيمة finished/question دائماً) ---
+    interview_complete: bool = Field(
+        default=False, description="مرآة لـfinished بتسمية العقد الجديد"
+    )
+    next_question: Optional[str] = Field(
+        default=None, description="مرآة لـquestion بتسمية العقد الجديد"
+    )

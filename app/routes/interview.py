@@ -1,9 +1,9 @@
 """
-Healix - Interview Route
-نقطة الـ API لمحرك المحادثة (المرحلة الأولى: أخذ التاريخ المرضي فقط).
+Healix - Clinical Interview Route
+نقطة الـ API لوكيل المقابلة السريرية (أخذ التاريخ المرضي + الاستخراج المنظَّم).
 
 المدخل:  { "text": "...", "session_id": "... | null" }
-المخرج:  سؤال عربي واحد، أو { "finished": true } عند اكتفاء المعلومات.
+المخرج:  السجل الطبي المنظَّم + سؤال عربي واحد، أو الإنهاء عند اكتفاء المعلومات.
 لا تشخيص ولا احتمالات أمراض ولا توصيات في هذه المرحلة.
 """
 
@@ -34,8 +34,12 @@ router = APIRouter(tags=["محرك المحادثة"])
     "/interview/turn",
     response_model=InterviewTurnResponse,
     status_code=status.HTTP_200_OK,
-    summary="دور واحد في مقابلة أخذ التاريخ المرضي",
-    description="يستخرج الأعراض، يخزّنها في الجلسة، ويعيد السؤال الطبي التالي الأهم بالعربية.",
+    summary="دور واحد في المقابلة السريرية",
+    description=(
+        "استدعاء LLM واحد يستخرج المعلومات الطبية المنظَّمة (أعراض، شدّة، مدّة، "
+        "موضع، أدوية، حساسية، أمراض مزمنة، تاريخ عائلي، النواقص) ويعيد السؤال "
+        "الطبي التالي الأهم بالعربية. لا تشخيص."
+    ),
 )
 async def interview_turn(
     request: InterviewTurnRequest,
@@ -43,7 +47,7 @@ async def interview_turn(
 ) -> InterviewTurnResponse:
     logger.info("دور مقابلة | session=%s | %s...", request.session_id, request.text[:50])
 
-    # الخط (LLM + MARBERT) متزامن (blocking) — نُشغّله خارج حلقة الأحداث.
+    # استدعاء الـLLM متزامن (blocking) — نُشغّله خارج حلقة الأحداث.
     loop = asyncio.get_running_loop()
     try:
         state, decision = await loop.run_in_executor(
@@ -60,12 +64,30 @@ async def interview_turn(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(exc)
         ) from exc
 
+    record = state.record
     return InterviewTurnResponse(
+        # العقد الأصلي (بلا تغيير).
         session_id=state.session_id,
         finished=decision.finished,
         next_slot=decision.next_slot,
         question=decision.question,
         turn=state.turn_count,
         status=state.status.value,
-        symptoms=[SymptomOut(text=s.text, negated=s.negated) for s in state.symptoms],
+        symptoms=[
+            SymptomOut(text=s.text, negated=s.negated, confidence=s.confidence)
+            for s in state.symptoms
+        ],
+        # السجل الطبي المنظَّم (إضافة LLM-first).
+        chief_complaint=record.chief_complaint,
+        severity=record.severity,
+        duration=record.duration,
+        body_location=record.body_location,
+        medications=record.medications,
+        allergies=record.allergies,
+        chronic_conditions=record.chronic_conditions,
+        family_history=record.family_history,
+        missing_fields=record.missing_fields,
+        # مرآتا العقد الجديد — نفس مصدر الحقيقة، لا قيمة مستقلة.
+        interview_complete=decision.finished,
+        next_question=decision.question,
     )
