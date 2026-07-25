@@ -39,18 +39,19 @@ app/data/**/*.json
 app/data/**/*.m4a
 !app/data/category_info.json
 
-# Model files
+# Model files (local weight artifacts must never enter git)
 models/*.bin
 models/*.pt
-models/marbert_model/
-!models/marbert_model/category_info.json
-
-# Trained MARBERT NER weights (large — keep out of git)
 *.safetensors
-app/models/marbert-ner/
+
+# Legacy MARBERT NER weights — the model was removed with the migration to
+# the LLM-first clinical interview. Kept ignored so any leftover local copy
+# (app/models/marbert-ner/, ~1.3 GB) can never be committed by accident.
+app/models/
 
 # Environment
 .env
+.env.*
 .env.local
 .env.production
 app/.env
@@ -70,3 +71,4 @@ Thumbs.db
 logs/
 
 docs/*
+notebooks/*

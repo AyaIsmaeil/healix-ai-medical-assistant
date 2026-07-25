@@ -12,6 +12,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Iterable, List, Optional
 
+from app.domain.clinical_record import ClinicalRecord
+
 
 class InterviewStatus(str, Enum):
     """حالة المقابلة."""
@@ -60,6 +62,8 @@ class ConversationState:
     asked_questions: List[AskedQuestion] = field(default_factory=list)
     # الخانة التي طُرح سؤالها في الدور السابق (نمسحها عند وصول الرسالة التالية).
     pending_slot: Optional[str] = None
+    # السجل الطبي المنظَّم المتراكم (يملؤه الـLLM دوراً بعد دور، بلا فقدان).
+    record: ClinicalRecord = field(default_factory=ClinicalRecord)
 
     # ------------------------------------------------------------------
     # الاستعلامات
@@ -110,3 +114,18 @@ class InterviewDecision:
     finished: bool
     next_slot: Optional[str] = None
     question: Optional[str] = None
+
+
+@dataclass
+class InterviewTurnOutput:
+    """مخرجات استدعاء LLM واحد لدور واحد: الاستخراج + القرار معاً.
+
+    بعد دمج الاستخراج داخل المقابلة السريرية صار استدعاء الـLLM الواحد يُنتج
+    الاثنين في JSON واحد — فلا استدعاء ثانٍ ولا منطق استخراج مكرَّر. فصل
+    ``decision`` عن ``record`` يُبقي منطق القرار (حراس المجال، منع التكرار)
+    كما هو دون أن يعرف شيئاً عن حقول السجل.
+    """
+
+    decision: InterviewDecision
+    record: ClinicalRecord = field(default_factory=ClinicalRecord)
+    symptoms: List[Symptom] = field(default_factory=list)

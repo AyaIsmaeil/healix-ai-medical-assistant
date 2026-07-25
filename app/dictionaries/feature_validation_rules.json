@@ -1,0 +1,34 @@
+{
+  "version": "1.0",
+  "description": "قواعد التحقّق من صحّة الميزات السريرية المُستخرَجة (Phase 3.2). يُحمَّل مرّة واحدة عند إقلاع الخدمة عبر DictionaryLoader — لا قراءة ملفات لكل طلب. تعديل النطاقات هنا لا يتطلّب تعديل الشيفرة.",
+  "fields": {
+    "age": {
+      "type": "int",
+      "min": 0,
+      "max": 120,
+      "on_out_of_range": "reject"
+    },
+    "temperature_c": {
+      "type": "float",
+      "min": 30.0,
+      "max": 45.0,
+      "on_out_of_range": "reject"
+    },
+    "severity_0_10": {
+      "type": "int",
+      "min": 0,
+      "max": 10,
+      "on_out_of_range": "clip"
+    },
+    "onset_days_ago": {
+      "type": "int",
+      "min": 0,
+      "max": 3650,
+      "on_out_of_range": "reject"
+    },
+    "gender": {
+      "type": "enum",
+      "allowed": ["male", "female"]
+    }
+  }
+}
