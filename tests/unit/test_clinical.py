@@ -62,9 +62,7 @@ def test_context_slots_present():
 
 
 def test_pregnancy_excluded_for_male():
-    items = clinical.build_checklist(
-        [Sym("صداع", False)], answered={"context:gender": "ذكر"}
-    )
+    items = clinical.build_checklist([Sym("صداع", False)], context_text="ذكر")
     assert "context:pregnancy" not in _targets(items)
 
 
@@ -75,9 +73,8 @@ def test_pregnancy_included_when_gender_unknown():
 
 def test_next_missing_skips_covered():
     symptoms = [Sym("صداع", False)]
-    answered = {"onset@صداع": "منذ يومين"}
     asked = ["onset@صداع"]
-    target, question = clinical.next_missing(symptoms, answered, asked)
+    target, question = clinical.next_missing(symptoms, "", asked)
     assert target == "duration@صداع"
     assert isinstance(question, str) and question
 
@@ -85,11 +82,34 @@ def test_next_missing_skips_covered():
 def test_next_missing_returns_none_when_all_covered():
     symptoms = [Sym("صداع", False)]
     all_targets = [t for t, _ in clinical.build_checklist(symptoms)]
-    answered = {t: "x" for t in all_targets}
-    assert clinical.next_missing(symptoms, answered, []) is None
+    assert clinical.next_missing(symptoms, "", all_targets) is None
 
 
 def test_missing_targets_limit():
     symptoms = [Sym("صداع", False)]
-    missing = clinical.missing_targets(symptoms, {}, [], limit=3)
+    missing = clinical.missing_targets(symptoms, "", [], limit=3)
     assert len(missing) == 3
+
+
+def test_male_is_never_asked_about_pregnancy():
+    """انحدار: الذكر كان يُسأل عن الحمل بعد إزالة خريطة خانة→قيمة."""
+    items = clinical.build_checklist([Sym("صداع", False)], context_text="مرحبا ٢٠ ذكر")
+    assert "context:pregnancy" not in _targets(items)
+
+
+def test_female_is_still_asked_about_pregnancy():
+    items = clinical.build_checklist([Sym("صداع", False)], context_text="٢٥ أنثى")
+    assert "context:pregnancy" in _targets(items)
+
+
+def test_no_demographics_before_a_chief_complaint():
+    """بلا أعراض: يجب طلب الشكوى الرئيسية فقط، لا العمر/الجنس/الحمل."""
+    items = clinical.build_checklist([], context_text="مرحبا")
+    assert _targets(items) == ["chief_complaint"]
+
+
+def test_keeps_asking_chief_complaint_until_symptoms_arrive():
+    """بلا أعراض: لا تنتهي المقابلة حتى لو سبق السؤال عن الشكوى."""
+    item = clinical.next_missing([], "مرحبا", asked=["chief_complaint"])
+    assert item is not None and item[0] == "chief_complaint"
+    assert clinical.missing_targets([], "مرحبا", ["chief_complaint"]) == ["chief_complaint"]

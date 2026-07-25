@@ -1,30 +1,17 @@
-"""
-Healix - Conversation Service (Use Case)
-محرك المحادثة — المرحلة الأولى: أخذ التاريخ المرضي فقط (بلا تشخيص).
-
-دورة الدور الواحد:
-    رسالة المريض
-        → تسجيل إجابة الخانة المعلّقة (إن وُجدت)
-        → استخراج الأعراض بـ MARBERT وتخزينها في الجلسة
-        → استدعاء الـ LLM لاختيار السؤال التالي الأهم
-        → إعادة سؤال عربي واحد، أو {"finished": true}
-
-يعتمد فقط على المنافذ (Ports) المحقونة، فلا اقتران بنموذج ملموس، وقابل للاختبار.
-"""
-
 from __future__ import annotations
 
 import logging
 from typing import Optional, Tuple
 
+from app.domain import clinical
 from app.domain.conversation import (
     ConversationState,
     InterviewDecision,
-    Symptom,
+    InterviewTurnOutput,
 )
-from app.domain.ports import LLMProvider, SessionStore, SymptomExtractorPort
-from app.exceptions import ConversationError, InterviewParsingError, LLMProviderError
-from app.parsing.interview_parser import parse_interview_decision
+from app.domain.ports import LLMProvider, SessionStore
+from app.exceptions import LLMProviderError
+from app.parsing.interview_parser import parse_interview_turn
 from app.prompts.interview_builder import InterviewPromptBuilder
 
 logger = logging.getLogger(__name__)
@@ -35,13 +22,11 @@ class ConversationService:
 
     def __init__(
         self,
-        extractor: SymptomExtractorPort,
         provider: LLMProvider,
         prompt_builder: InterviewPromptBuilder,
         store: SessionStore,
         max_questions: int = 8,
     ) -> None:
-        self._extractor = extractor
         self._provider = provider
         self._prompts = prompt_builder
         self._store = store
@@ -61,19 +46,23 @@ class ConversationService:
         # 2) حفظ الرسالة الخام كاملةً (سياق كامل للـ LLM، لا يُفقد أي شيء).
         state.record_patient_message(text)
 
-        # 3) استخراج الأعراض (MARBERT) وتخزينها بلا تكرار.
-        extracted = self._extractor.extract(text)
-        state.add_symptoms(
-            Symptom(text=s.text, negated=s.negated, confidence=s.confidence)
-            for s in extracted
-        )
-
         state.turn_count += 1
 
-        # 4) قرار الدور.
-        decision = self._decide(state)
+        # 3) استدعاء واحد: استخراج منظَّم + قرار الدور.
+        #    يُستدعى حتى عند بلوغ سقف الأسئلة (حيث سيُفرَض الإنهاء لاحقاً):
+        #    رسالة المريض الأخيرة قد تحمل معلومات طبية مهمّة، وتخطّي الاستدعاء
+        #    كان سيُسقطها من السجل نهائياً. سابقاً كان الاستخراج مرحلة منفصلة
+        #    فحصل عليها مجاناً؛ بعد الدمج صار لزاماً استدعاء واحد لضمانها.
+        turn = self._run_turn(state)
 
-        # 5) تطبيق القرار على الحالة.
+        # 4) دمج المخرجات في الجلسة قبل حرّاس المجال (فالحرّاس يقرأون الأعراض).
+        state.add_symptoms(turn.symptoms)
+        state.record.merge(turn.record)
+
+        # 5) حرّاس المجال على القرار.
+        decision = self._guard(state, turn.decision)
+
+        # 6) تطبيق القرار على الحالة.
         if decision.finished:
             state.mark_completed()
         else:
@@ -82,15 +71,9 @@ class ConversationService:
         self._store.save(state)
         return state, decision
 
-    # ------------------------------------------------------------------
-    # اتخاذ القرار
-    # ------------------------------------------------------------------
-    def _decide(self, state: ConversationState) -> InterviewDecision:
-        """حدّ أقصى للأسئلة كحماية، وإلا يختار الـ LLM السؤال التالي."""
-        if len(state.asked_questions) >= self._max_questions:
-            logger.info("بلوغ الحد الأقصى للأسئلة — إنهاء المقابلة.")
-            return InterviewDecision(finished=True)
-
+    # استدعاء الـLLM
+    def _run_turn(self, state: ConversationState) -> InterviewTurnOutput:
+        """استدعاء المزوّد مرّة واحدة وتحليل العقد الموحّد."""
         system_prompt = self._prompts.system_prompt()
         user_prompt = self._prompts.turn_prompt(state)
 
@@ -100,7 +83,39 @@ class ConversationService:
             logger.exception("فشل استدعاء مزوّد الـ LLM.")
             raise LLMProviderError(f"فشل استدعاء الـ LLM: {exc}") from exc
 
-        decision = parse_interview_decision(completion.text)
+        return parse_interview_turn(completion.text)
+
+    # ------------------------------------------------------------------
+    # حرّاس المجال على القرار
+    # ------------------------------------------------------------------
+    def _guard(
+        self, state: ConversationState, decision: InterviewDecision
+    ) -> InterviewDecision:
+        """قواعد المحرك التي تعلو على اقتراح النموذج."""
+        # حدّ أقصى للأسئلة — حماية من الحلقات اللانهائية.
+        if len(state.asked_questions) >= self._max_questions:
+            logger.info("بلوغ الحد الأقصى للأسئلة — إنهاء المقابلة.")
+            return InterviewDecision(finished=True)
+
+        # لا تنتهي المقابلة قبل الحصول على أي عرَض مُثبَت. الـLLM قد يُنهيها بعد
+        # "مرحبا/كيفك" لأنّه لم يجد ما يسأل عنه — وهذا القرار الطبي ملك المحرك
+        # لا النموذج، فنُصرّ على سؤال الشكوى الرئيسية بشكل حتمي.
+        #
+        # الشرط ``decision.finished`` أساسي: الحارس يتدخّل **فقط** عند محاولة
+        # الإنهاء. ما دام الـLLM يسأل، فسؤاله هو المعتمد حتى قبل استخراج أي
+        # عرَض — هو وكيل المقابلة وصاحب صياغة الأسئلة، والمحرك لا يزاحمه.
+        # (سابقاً كان التجاوز يقع كلّما غاب العرَض المُثبَت، فيستبدل سؤال
+        # النموذج بسؤال ثابت يكاد يطابق تحية البداية → تكرار يراه المريض.)
+        if decision.finished and not any(not s.negated for s in state.symptoms):
+            item = clinical.next_missing(
+                state.symptoms, " ".join(state.raw_messages), state.asked_slots
+            )
+            if item is not None:
+                target, question = item
+                logger.info("منع إنهاء المقابلة بلا أعراض — إعادة سؤال الشكوى.")
+                return InterviewDecision(
+                    finished=False, next_slot=target, question=question
+                )
 
         # منع تكرار خانة سبق السؤال عنها: نتجاهل القرار ونُنهي بدل الإعادة.
         if not decision.finished and decision.next_slot in state.asked_slots:

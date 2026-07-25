@@ -32,10 +32,29 @@ def test_turn_prompt_contains_all_raw_patient_messages():
     ]
 
 
-def test_turn_prompt_keeps_marbert_symptoms_split():
+def test_turn_prompt_keeps_known_symptoms_split():
+    """ما تراكم سلفاً يصل للـLLM مفصولاً (مُثبَت/منفيّ) كتأريض ضد النسيان."""
     prompt = InterviewPromptBuilder().turn_prompt(_state())
-    assert _grab(prompt, "EXTRACTED_SYMPTOMS") == ["حرارة"]
-    assert _grab(prompt, "NEGATED_SYMPTOMS") == ["كحة"]
+    assert _grab(prompt, "KNOWN_SYMPTOMS") == ["حرارة"]
+    assert _grab(prompt, "KNOWN_NEGATED_SYMPTOMS") == ["كحة"]
+
+
+def test_turn_prompt_carries_accumulated_record():
+    """السجل المتراكم يُمرَّر للـLLM فلا يُعيد السؤال عمّا استُخرج سابقاً."""
+    state = _state()
+    state.record.chief_complaint = "حرارة"
+    state.record.medications = ["بنادول"]
+
+    record = _grab(InterviewPromptBuilder().turn_prompt(state), "KNOWN_RECORD")
+    assert record["chief_complaint"] == "حرارة"
+    assert record["medications"] == ["بنادول"]
+    # لا حقل تشخيص إطلاقاً في ما يُمرَّر أو يُطلَب.
+    assert "diagnosis" not in record
+
+
+def test_turn_prompt_marks_latest_message():
+    prompt = InterviewPromptBuilder().turn_prompt(_state())
+    assert _grab(prompt, "LATEST_MESSAGE") == "لا أعرف بالضبط"
 
 
 def test_turn_prompt_has_no_slot_value_map():
@@ -61,3 +80,21 @@ def test_system_prompt_enforces_constraints_and_raw_context():
     assert "تشخيص" in sp
     # يشرح استخدام كامل رسائل المريض + عدم تكرار ما ذُكر فيها.
     assert "PATIENT_MESSAGES" in sp
+    # ويطلب الاستخراج المنظَّم صراحةً (لا سؤالاً فقط).
+    for key in ("symptoms", "medications", "allergies", "chronic_conditions",
+                "family_history", "missing_fields"):
+        assert key in sp
+
+
+def test_json_schema_forbids_any_diagnosis_field():
+    """منع بنيوي لا نصّي: المخطّط الصارم لا يسمح أصلاً بحقل تشخيص."""
+    from app.prompts.interview_builder import INTERVIEW_JSON_SCHEMA
+
+    schema = INTERVIEW_JSON_SCHEMA["schema"]
+    assert schema["additionalProperties"] is False
+    properties = set(schema["properties"])
+    assert properties.isdisjoint(
+        {"diagnosis", "disease", "prediction", "specialty", "urgency", "triage"}
+    )
+    # كل حقول السجل والقرار مطلوبة (شكل ثابت لا يعتمد على مزاج النموذج).
+    assert set(schema["required"]) == properties

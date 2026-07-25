@@ -167,22 +167,20 @@ def test_factory_rejects_unknown_provider(monkeypatch):
 # ----------------------------------------------------------------------
 # تكامل: محرك المقابلة يعمل مع Qwen دون أي تغيير في كوده
 # ----------------------------------------------------------------------
-@dataclass
-class _Sym:
-    text: str
-    negated: bool
-    confidence: float
-
-
-class _FakeExtractor:
-    def extract(self, text):
-        return [_Sym("صداع", False, 0.9)]
+# العقد الموحّد: الأعراض تأتي من نفس ردّ الـLLM (لا مستخرج خارجي).
+UNIFIED_JSON = json.dumps({
+    "chief_complaint": "صداع",
+    "symptoms": [{"text": "صداع", "negated": False, "confidence": 0.9}],
+    "severity": None, "duration": None, "body_location": None,
+    "medications": [], "allergies": [], "chronic_conditions": [],
+    "family_history": [], "missing_fields": [],
+    "finished": False, "next_slot": "onset@صداع", "question": "منذ متى؟",
+}, ensure_ascii=False)
 
 
 def test_interview_engine_unchanged_with_qwen_provider():
-    provider = _provider([FakeResponse(content=VALID_JSON)])
+    provider = _provider([FakeResponse(content=UNIFIED_JSON)])
     svc = ConversationService(
-        extractor=_FakeExtractor(),
         provider=provider,
         prompt_builder=InterviewPromptBuilder(),
         store=InMemorySessionStore(),
@@ -193,11 +191,13 @@ def test_interview_engine_unchanged_with_qwen_provider():
     assert decision.question == "منذ متى؟"
     assert decision.next_slot == "onset@صداع"
     assert state.asked_slots == ["onset@صداع"]
+    # الاستخراج وصل من نفس الاستدعاء — بلا مستخرج مستقل.
+    assert [s.text for s in state.symptoms] == ["صداع"]
+    assert state.record.chief_complaint == "صداع"
 
 
 def test_mock_provider_still_works_end_to_end():
     svc = ConversationService(
-        extractor=_FakeExtractor(),
         provider=MockLLMProvider(),
         prompt_builder=InterviewPromptBuilder(),
         store=InMemorySessionStore(),
@@ -349,3 +349,82 @@ def test_health_reports_unreachable():
 
 def test_mock_health_always_ok():
     assert MockLLMProvider().health()["ok"] is True
+
+
+# ----------------------------------------------------------------------
+# عقد JSON قابل للتخصيص لكل مثيل (schema/validator/نص تصحيح) — يتيح
+# لمستهلكين آخرين (كمحرك التقييم) استخدام المزوّد بعقد مختلف تماماً عن
+# عقد المقابلة، دون أي تغيير بمحرك المقابلة نفسه (الاختبارات أعلاه لا تمرّر
+# أياً من هذه المعاملات، فتبقى بالافتراضي = عقد المقابلة تماماً كالسابق).
+# ----------------------------------------------------------------------
+_EXTRACTION_SCHEMA = {
+    "name": "custom_extraction",
+    "strict": True,
+    "schema": {
+        "type": "object",
+        "properties": {"age": {"type": ["integer", "null"]}},
+        "required": ["age"],
+        "additionalProperties": False,
+    },
+}
+
+
+def _always_valid(text: str) -> None:
+    """مُتحقِّق مخصَّص متساهل — يقبل أي نص بلا شرط (للاختبار)."""
+    return None
+
+
+def test_custom_response_schema_is_sent_instead_of_interview_schema():
+    provider = _provider(
+        [FakeResponse(content='{"age": 30}')],
+        json_mode="schema",
+        response_schema=_EXTRACTION_SCHEMA,
+        response_validator=_always_valid,
+    )
+    provider.generate("sys", "user")
+    sent_schema = provider._client.requests[0]["json"]["response_format"]["json_schema"]
+    assert sent_schema["name"] == "custom_extraction"
+    assert "finished" not in sent_schema["schema"]["properties"]
+
+
+def test_custom_response_validator_accepts_non_interview_shape():
+    """بلا مُتحقِّق مخصَّص، رد كهذا كان سيُرفض (لا يطابق عقد المقابلة) ويُعاد
+    المحاولة حتى الاستنفاد. بمُتحقِّق مخصَّص متساهل، يُقبل من أول محاولة."""
+    provider = _provider(
+        [FakeResponse(content='{"age": 30}')],
+        response_validator=_always_valid,
+    )
+    out = provider.generate("sys", "user")
+    assert json.loads(out.text) == {"age": 30}
+    assert len(provider._client.requests) == 1  # بلا إعادة محاولة
+
+
+def test_default_schema_is_the_clinical_interview_contract():
+    """بلا معاملات، المزوّد يستخدم عقد المقابلة السريرية الموحّد — وهو نفسه
+    المُعرَّف في interview_builder (مصدر واحد، لا تعريفان ينحرفان)."""
+    from app.prompts.interview_builder import INTERVIEW_JSON_SCHEMA
+
+    provider = _provider([FakeResponse(content=UNIFIED_JSON)], json_mode="schema")
+    provider.generate("sys", "user")
+    sent_schema = provider._client.requests[0]["json"]["response_format"]["json_schema"]
+    assert sent_schema["name"] == "clinical_interview_turn"
+    assert sent_schema is INTERVIEW_JSON_SCHEMA
+
+
+def test_custom_nudge_message_used_on_retry():
+    provider = _provider(
+        [FakeResponse(content="غير صالح"), FakeResponse(content='{"age": 5}')],
+        response_validator=_always_valid_then_reject_first,
+        response_format_hint="نص تصحيح مخصَّص للاستخراج",
+    )
+    provider.generate("sys", "user")
+    second_messages = provider._client.requests[1]["json"]["messages"]
+    assert second_messages[-1]["content"] == "نص تصحيح مخصَّص للاستخراج"
+
+
+def _always_valid_then_reject_first(text: str) -> None:
+    from app.exceptions import FeatureExtractionError
+
+    if text == "غير صالح":
+        raise FeatureExtractionError("شكل خاطئ")
+    return None

@@ -15,7 +15,7 @@ Healix - Clinical Interview Knowledge
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import List, Mapping, Optional, Protocol, Sequence, Tuple, runtime_checkable
+from typing import List, Optional, Protocol, Sequence, Tuple, runtime_checkable
 
 
 @runtime_checkable
@@ -116,6 +116,7 @@ CONTEXT_SLOTS: Tuple[SlotSpec, ...] = (
 )
 
 _MALE_HINTS = ("ذكر", "رجل", "صبي", "male", "ولد")
+_FEMALE_HINTS = ("أنثى", "انثى", "امرأة", "مرأة", "بنت", "سيدة", "female")
 
 
 def _positive_symptoms(symptoms: Sequence[SymptomView]) -> List[SymptomView]:
@@ -123,26 +124,36 @@ def _positive_symptoms(symptoms: Sequence[SymptomView]) -> List[SymptomView]:
     return [s for s in symptoms if not getattr(s, "negated", False)]
 
 
+def _is_male(context_text: str) -> bool:
+    """هل دلّ كلام المريض على أنه ذكر؟ (الأنثى لها الأولوية لتجنّب الالتباس)."""
+    if any(hint in context_text for hint in _FEMALE_HINTS):
+        return False
+    return any(hint in context_text for hint in _MALE_HINTS)
+
+
 def build_checklist(
     symptoms: Sequence[SymptomView],
-    answered: Optional[Mapping[str, str]] = None,
+    context_text: str = "",
 ) -> List[ChecklistItem]:
     """
     بناء قائمة التساؤل المرتّبة (target, question) للحالة الراهنة.
 
     الترتيب: OLDCARTS للعرَض الرئيسي → الأسئلة الخاصة بكل عرَض مُثبَت → السياق.
-    خانة الحمل تُستبعد إذا دلّت إجابة الجنس على ذكر.
+
+    ``context_text`` = كل ما قاله المريض (raw messages مدموجة). منه تُستنتج
+    خانة الحمل: تُستبعد إذا دلّ كلامه على أنه ذكر. (سابقاً كانت تُقرأ من خريطة
+    خانة→قيمة التي أُزيلت، فصارت لا تُستبعد أبداً — وهو سبب سؤال الذكر عن الحمل.)
+
+    وإذا لم يُذكر أي عرَض بعد، تُعاد خانة الشكوى الرئيسية **وحدها**: لا يصحّ
+    الانتقال لأسئلة العمر/الجنس قبل معرفة سبب المراجعة أصلاً.
     """
-    answered = answered or {}
     items: List[ChecklistItem] = []
     seen: set = set()
 
     positives = _positive_symptoms(symptoms)
 
     if not positives:
-        items.append(
-            ("chief_complaint", "هل يمكنك وصف الأعراض التي تشعر بها بالتفصيل؟")
-        )
+        return [("chief_complaint", "هل يمكنك وصف الأعراض التي تشعر بها بالتفصيل؟")]
     else:
         primary = positives[0].text
         for spec in CORE_SLOTS:
@@ -162,8 +173,7 @@ def build_checklist(
                         seen.add(target)
                         items.append((target, spec.question))
 
-    gender_answer = answered.get("context:gender", "")
-    is_male = any(hint in gender_answer for hint in _MALE_HINTS)
+    is_male = _is_male(context_text)
 
     for spec in CONTEXT_SLOTS:
         if spec.slot == "pregnancy" and is_male:
@@ -177,18 +187,22 @@ def build_checklist(
     return items
 
 
-def _covered(answered: Mapping[str, str], asked: Sequence[str]) -> set:
-    return set(answered.keys()) | set(asked)
-
-
 def next_missing(
     symptoms: Sequence[SymptomView],
-    answered: Mapping[str, str],
+    context_text: str,
     asked: Sequence[str],
 ) -> Optional[ChecklistItem]:
     """أوّل خانة غير مُغطّاة في القائمة، أو None عند اكتمال جمع التاريخ."""
-    covered = _covered(answered, asked)
-    for target, question in build_checklist(symptoms, answered):
+    checklist = build_checklist(symptoms, context_text)
+
+    # ما دام المريض لم يذكر أي عرَض، نُصرّ على الشكوى الرئيسية حتى لو سبق
+    # السؤال عنها — وإلا خلت القائمة فتنتهي المقابلة بلا أي أعراض إطلاقاً.
+    # (حدّ MAX_QUESTIONS في محرك المحادثة يمنع الدوران اللانهائي.)
+    if not _positive_symptoms(symptoms):
+        return checklist[0]
+
+    covered = set(asked)
+    for target, question in checklist:
         if target not in covered:
             return target, question
     return None
@@ -196,11 +210,17 @@ def next_missing(
 
 def missing_targets(
     symptoms: Sequence[SymptomView],
-    answered: Mapping[str, str],
+    context_text: str,
     asked: Sequence[str],
     limit: Optional[int] = None,
 ) -> List[str]:
     """قائمة الخانات المفقودة عالية القيمة (لإرشاد الـ LLM)."""
-    covered = _covered(answered, asked)
-    missing = [t for t, _ in build_checklist(symptoms, answered) if t not in covered]
+    checklist = build_checklist(symptoms, context_text)
+
+    # بلا أعراض: تبقى الشكوى الرئيسية هي المطلوب الوحيد (ولو سُئلت سابقاً).
+    if not _positive_symptoms(symptoms):
+        return [checklist[0][0]]
+
+    covered = set(asked)
+    missing = [t for t, _ in checklist if t not in covered]
     return missing[:limit] if limit else missing

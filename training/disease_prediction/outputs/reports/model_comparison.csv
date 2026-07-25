@@ -1,0 +1,6 @@
+model,display_name,train_seconds,peak_memory_mb,model_size_mb,val_full_accuracy,val_full_f1_macro,val_full_f1_weighted,val_clean_accuracy,val_clean_f1_macro,val_clean_f1_weighted,val_clean_top3_accuracy,val_clean_top5_accuracy,predict_seconds_per_1000_rows
+logistic_regression,Logistic Regression,2468.42,4131.0,0.059,0.99507,0.993336,0.994962,0.994996,0.993333,0.994887,1.0,1.0,0.004408
+random_forest,Random Forest,202.62,4047.8,2176.557,0.996716,0.996152,0.996672,0.996667,0.996152,0.996622,0.999985,1.0,0.046615
+xgboost,XGBoost,2162.76,3795.4,9.448,0.987859,0.944676,0.987421,0.987747,0.944098,0.987303,0.993356,0.994092,0.071479
+lightgbm,LightGBM,276.9433,3576.3,6.917,0.207387,0.162258,0.175853,0.208172,0.162327,0.176989,0.27441,0.356419,0.03618
+catboost,CatBoost,3772.8922,6331.0,5.16,0.996776,0.996135,0.996733,0.996728,0.995938,0.996684,0.999985,0.999992,0.004016
