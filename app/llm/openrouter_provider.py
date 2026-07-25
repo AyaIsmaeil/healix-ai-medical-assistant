@@ -17,53 +17,39 @@ Healix - Qwen3 via OpenRouter Provider
   لاحقاً في نقطة فحص صحّة.
 - تسجيل: المزوّد، النموذج، زمن الاستجابة، الرموز (إن توفّرت)، عدد المحاولات.
   لا يُسجَّل أي نصّ من رسائل المريض إطلاقاً.
+
+عقد JSON قابل للتخصيص لكل مثيل (schema/validator/نص تصحيح): الافتراضي هو
+عقد المقابلة تماماً كما كان (توافق خلفي كامل، صفر تغيير سلوك لمحرك
+المقابلة الحالي). أي مستهلك آخر (كمحرك التقييم) يبني مثيلاً منفصلاً بعقده
+الخاص عبر هذه المعاملات — بلا حاجة لتعديل هذا الملف مجدداً لكل عقد جديد.
 """
 
 from __future__ import annotations
 
 import logging
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import httpx
 
 from app.config import config
 from app.domain.ports import Completion
-from app.exceptions import InterviewParsingError, LLMProviderError
-from app.parsing.interview_parser import parse_interview_decision
+from app.exceptions import HealixError, LLMProviderError
+from app.parsing.interview_parser import (
+    INTERVIEW_JSON_NUDGE,
+    validate_interview_shape,
+)
+from app.prompts.interview_builder import INTERVIEW_JSON_SCHEMA
 
 logger = logging.getLogger(__name__)
 
-# رسالة تصحيحية تُرسل عند مخرجات غير صالحة (لا تحتوي أي بيانات مريض).
-_JSON_NUDGE = (
-    "ردّك السابق لم يكن JSON صالحاً بالعقد المطلوب. "
-    'أعد JSON فقط، دون أي نصّ خارجه، بالشكل: '
-    '{"finished": false, "next_slot": "...", "question": "..."} '
-    'أو {"finished": true}.'
-)
+_JSON_NUDGE = INTERVIEW_JSON_NUDGE
+_INTERVIEW_SCHEMA: Dict[str, Any] = INTERVIEW_JSON_SCHEMA
 
-# مخطط عقد المقابلة (JSON Schema صارم) — يطابق parse_interview_decision تماماً.
-_INTERVIEW_SCHEMA: Dict[str, Any] = {
-    "name": "interview_decision",
-    "strict": True,
-    "schema": {
-        "type": "object",
-        "properties": {
-            "finished": {"type": "boolean"},
-            "next_slot": {"type": ["string", "null"]},
-            "question": {"type": ["string", "null"]},
-        },
-        "required": ["finished", "next_slot", "question"],
-        "additionalProperties": False,
-    },
-}
-
-# ترتيب التخفيض التلقائي لوضع المخرجات المنظَّمة.
 _JSON_MODE_DEGRADE = {"schema": "object", "object": "off"}
 
 
 class QwenOpenRouterProvider:
-    """مزوّد Qwen3 عبر OpenRouter Chat Completions API (متزامن، بلا Streaming)."""
 
     name = "qwen_openrouter"
 
@@ -77,7 +63,11 @@ class QwenOpenRouterProvider:
         timeout: Optional[float] = None,
         max_attempts: Optional[int] = None,
         json_mode: Optional[str] = None,
+        reasoning: Optional[bool] = None,
         client: Optional[httpx.Client] = None,
+        response_schema: Optional[Dict[str, Any]] = None,
+        response_validator: Optional[Callable[[str], Any]] = None,
+        response_format_hint: Optional[str] = None,
     ) -> None:
         self._api_key = config.OPENROUTER_API_KEY if api_key is None else api_key
         if not self._api_key:
@@ -97,12 +87,19 @@ class QwenOpenRouterProvider:
         mode = (json_mode or config.OPENROUTER_JSON_MODE).strip().lower()
         self._json_mode = mode if mode in ("schema", "object", "off") else "schema"
 
+        self._reasoning = config.OPENROUTER_REASONING if reasoning is None else bool(reasoning)
+
+        # عقد JSON قابل للتخصيص لكل مثيل — الافتراضي عقد المقابلة (توافق
+        # خلفي كامل: بناء المزوّد بلا أي من هذه المعاملات يُعطي بالضبط نفس
+        # سلوك محرك المقابلة الحالي، بلا أي تغيير).
+        self._response_schema = response_schema or _INTERVIEW_SCHEMA
+        self._response_validator = response_validator or validate_interview_shape
+        self._nudge_message = response_format_hint or _JSON_NUDGE
+
         # قابل للحقن في الاختبارات (بلا شبكة).
         self._client = client or httpx.Client(timeout=self._timeout)
 
-    # ------------------------------------------------------------------
     # الواجهة العامة (نفس منفذ LLMProvider)
-    # ------------------------------------------------------------------
     def generate(self, system_prompt: str, user_prompt: str) -> Completion:
         messages: List[Dict[str, str]] = [
             {"role": "system", "content": system_prompt},
@@ -141,18 +138,21 @@ class QwenOpenRouterProvider:
                 attempt - 1,
             )
 
-            # التحقّق من العقد قبل الإرجاع — لا يُمرَّر JSON غير صالح للمحرك.
+            # التحقّق من العقد قبل الإرجاع — لا يُمرَّر JSON غير صالح للمستدعي.
+            # المُتحقِّق قابل للتخصيص لكل مثيل (افتراضياً عقد المقابلة)؛
+            # HealixError عامّة هنا لأنّها الأصل المشترك لكل استثناءات
+            # التحقّق بالمشروع (InterviewParsingError، FeatureExtractionError...).
             try:
-                parse_interview_decision(content)
+                self._response_validator(content)
                 return Completion(text=content, model=data.get("model", self._model))
-            except InterviewParsingError as exc:
+            except HealixError as exc:
                 last_error = exc
                 logger.warning(
                     "مخرجات LLM غير صالحة (محاولة %d/%d) — إعادة المحاولة.",
                     attempt, self._max_attempts,
                 )
                 messages.append({"role": "assistant", "content": content})
-                messages.append({"role": "user", "content": _JSON_NUDGE})
+                messages.append({"role": "user", "content": self._nudge_message})
 
         raise LLMProviderError(
             f"أعاد الـ LLM مخرجات غير صالحة بعد {self._max_attempts} محاولات: {last_error}"
@@ -213,7 +213,7 @@ class QwenOpenRouterProvider:
     # ------------------------------------------------------------------
     def _response_format(self) -> Optional[Dict[str, Any]]:
         if self._json_mode == "schema":
-            return {"type": "json_schema", "json_schema": _INTERVIEW_SCHEMA}
+            return {"type": "json_schema", "json_schema": self._response_schema}
         if self._json_mode == "object":
             return {"type": "json_object"}
         return None
@@ -230,6 +230,10 @@ class QwenOpenRouterProvider:
         response_format = self._response_format()
         if response_format is not None:
             payload["response_format"] = response_format
+
+        # تعطيل وضع التفكير (Qwen3) لسرعة الاستجابة — يمنع توليد رموز تفكير مطوّلة.
+        if not self._reasoning:
+            payload["reasoning"] = {"enabled": False}
 
         headers = {
             "Authorization": f"Bearer {self._api_key}",

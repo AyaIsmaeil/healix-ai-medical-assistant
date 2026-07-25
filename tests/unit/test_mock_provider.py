@@ -1,32 +1,44 @@
-"""اختبارات وحدة للمزوّد الوهمي (MockLLMProvider) — تساؤل ديناميكي."""
+"""اختبارات وحدة للمزوّد الوهمي (MockLLMProvider) — تساؤل ديناميكي + عقد موحّد."""
 
 import json
 from collections import namedtuple
 
 from app.domain import clinical
 from app.llm.mock_provider import MockLLMProvider
-from app.parsing.interview_parser import parse_interview_decision
+from app.parsing.interview_parser import parse_interview_decision, parse_interview_turn
+from app.prompts.interview_builder import (
+    LABEL_ASKED,
+    LABEL_KNOWN_NEGATED,
+    LABEL_KNOWN_SYMPTOMS,
+    LABEL_LATEST_MESSAGE,
+    LABEL_PATIENT_MESSAGES,
+    LABEL_SUGGESTED,
+    LABEL_TURN,
+)
 
 
 def _prompt(symptoms=None, asked=None, patient_messages=None):
-    """يبني كتلة الحالة الموسومة كما ينتجها InterviewPromptBuilder v4.
+    """يبني كتلة الحالة الموسومة كما ينتجها InterviewPromptBuilder.
 
-    التغطية للتكرار عبر ``asked`` فقط (لا خريطة خانة→قيمة).
+    تُستورَد أسماء الوسوم من مصدرها بدل نسخها نصّاً، فلا ينحرف الاختبار عن
+    المنتِج عند أي إعادة تسمية لاحقة.
     """
     symptoms = symptoms or []
-    extracted = [s["text"] for s in symptoms if not s.get("negated")]
+    known = [s["text"] for s in symptoms if not s.get("negated")]
     negated = [s["text"] for s in symptoms if s.get("negated")]
+    messages = patient_messages or ["رسالة"]
 
     def line(label, value):
         return f"{label}: {json.dumps(value, ensure_ascii=False)}"
 
     return "\n".join([
-        line("PATIENT_MESSAGES", patient_messages or ["رسالة"]),
-        line("EXTRACTED_SYMPTOMS", extracted),
-        line("NEGATED_SYMPTOMS", negated),
-        line("ASKED_SLOTS", asked or []),
-        line("TURN_COUNT", 1),
-        line("SUGGESTED_MISSING_SLOTS", []),
+        line(LABEL_PATIENT_MESSAGES, messages),
+        line(LABEL_LATEST_MESSAGE, messages[-1]),
+        line(LABEL_KNOWN_SYMPTOMS, known),
+        line(LABEL_KNOWN_NEGATED, negated),
+        line(LABEL_ASKED, asked or []),
+        line(LABEL_TURN, 1),
+        line(LABEL_SUGGESTED, []),
     ])
 
 
@@ -72,3 +84,33 @@ def test_finishes_when_all_asked():
     ))
     decision = parse_interview_decision(out.text)
     assert decision.finished is True
+
+
+def test_emits_the_unified_contract():
+    """المزوّد الوهمي يُنتج العقد الموحّد كاملاً (استخراج + قرار)."""
+    provider = MockLLMProvider()
+    out = provider.generate("sys", _prompt(
+        symptoms=[{"text": "صداع", "negated": False}]
+    ))
+    turn = parse_interview_turn(out.text)
+
+    assert [s.text for s in turn.symptoms] == ["صداع"]
+    assert turn.record.chief_complaint == "صداع"
+    assert turn.decision.finished is False
+    # لا يخترع قيماً طبية لم تُذكر.
+    assert turn.record.severity is None
+    assert turn.record.medications == []
+
+
+def test_detects_symptoms_and_negation_from_patient_text():
+    """بلا مستخرج خارجي: المزوّد الوهمي يستخرج من نص المريض مباشرةً."""
+    provider = MockLLMProvider()
+    out = provider.generate("sys", _prompt(
+        patient_messages=["عندي حرارة وصداع ولا يوجد سعال"]
+    ))
+    turn = parse_interview_turn(out.text)
+
+    found = {(s.text, s.negated) for s in turn.symptoms}
+    assert ("حرارة", False) in found
+    assert ("صداع", False) in found
+    assert ("سعال", True) in found

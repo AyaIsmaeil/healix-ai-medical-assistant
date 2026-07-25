@@ -7,52 +7,19 @@ load_dotenv()
 
 # مسارات المشروع
 BASE_DIR = Path(__file__).parent
-MODELS_DIR = BASE_DIR / "models"
 DATA_DIR = BASE_DIR / "data"
 
 class Config:
-    # ------------------------------------------------------------------
-    # النموذج (MARBERT Token-Classification / NER لاستخراج الأعراض)
-    # ------------------------------------------------------------------
-    # مصدر النموذج: مجلد محلي إن وُجد، وإلا مستودع Hugging Face.
-    LOCAL_MODEL_PATH = os.getenv("MODEL_PATH", str(MODELS_DIR / "marbert-ner"))
-    HF_MODEL_ID = os.getenv("HF_MODEL_ID", "ayaismael/marbert-symptom-ner")
-
-    MODEL_NAME = os.getenv("MODEL_NAME", "UBC-NLP/MARBERTv2")
-    MAX_SEQUENCE_LENGTH = int(os.getenv("MAX_SEQUENCE_LENGTH", 256))
-    BATCH_SIZE = int(os.getenv("BATCH_SIZE", 16))
-
-    def model_source(self) -> str:
-        """
-        تحديد مصدر النموذج المُدرّب.
-        يُفضّل المجلد المحلي (إن كان يحتوي على ملفات النموذج) وإلا يُستخدم
-        مُعرّف مستودع Hugging Face حتى تعمل الخدمة دون الحاجة لرفع الأوزان.
-        """
-        local = Path(self.LOCAL_MODEL_PATH)
-        if local.is_dir() and (local / "config.json").exists():
-            return str(local)
-        return self.HF_MODEL_ID
-
     HOST = os.getenv("HOST", "0.0.0.0")
     PORT = int(os.getenv("PORT", 8000))
     RELOAD = os.getenv("RELOAD", "false").lower() == "true"
-    
- 
-    USE_GPU = os.getenv("USE_GPU", "true").lower() == "true"
-    NUM_WORKERS = int(os.getenv("NUM_WORKERS", 4))
-    
 
     LOG_LEVEL = os.getenv("LOG_LEVEL", "info")
-    
-   
-    ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8000").split(",")
-    
 
-    CONFIDENCE_THRESHOLD = float(os.getenv("CONFIDENCE_THRESHOLD", 0.5))
-    TOP_K_PREDICTIONS = int(os.getenv("TOP_K_PREDICTIONS", 3))
+    ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8000").split(",")
 
     # ------------------------------------------------------------------
-    # محرك المحادثة (Conversation Engine) + مزوّد الـ LLM
+    # وكيل المقابلة السريرية (Clinical Interview) + مزوّد الـ LLM
     # ------------------------------------------------------------------
     # تفعيل تحميل Whisper ضمن الخدمة الموحّدة (يمكن تعطيله لتسريع بدء التطوير).
     ENABLE_WHISPER = os.getenv("ENABLE_WHISPER", "true").lower() == "true"
@@ -66,7 +33,9 @@ class Config:
     # OpenRouter (Qwen3) — كل القيم من متغيّرات البيئة، لا شيء ثابت في الكود
     # ------------------------------------------------------------------
     OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
-    OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "qwen/qwen3-14b")
+    # Qwen3-32B: العقل الأساسي للمساعد بعد الانتقال لمعمارية LLM-first
+    # (استخراج منظَّم + أسئلة متابعة في استدعاء واحد).
+    OPENROUTER_MODEL = os.getenv("OPENROUTER_MODEL", "qwen/qwen3-32b")
     OPENROUTER_BASE_URL = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
 
     # مهلة طلب OpenRouter بالثواني (OPENROUTER_TIMEOUT، مع LLM_TIMEOUT كتوافق خلفي).
@@ -77,12 +46,19 @@ class Config:
     # عند رفض النموذج للوضع الأعلى يُخفَّض تلقائياً درجة واحدة.
     OPENROUTER_JSON_MODE = os.getenv("OPENROUTER_JSON_MODE", "schema").strip().lower()
 
+    # وضع تفكير النموذج (Qwen3 thinking). الافتراضي false = مُعطَّل → ردود سريعة
+    # جداً (بلا رموز تفكير مطوّلة). فعّله فقط إن أردت جودة أعلى على حساب السرعة.
+    OPENROUTER_REASONING = os.getenv("OPENROUTER_REASONING", "false").lower() == "true"
+
     # عند تعذّر الوصول لـ OpenRouter: الرجوع تلقائياً للمزوّد الوهمي (مع تحذير).
     LLM_FALLBACK_TO_MOCK = os.getenv("LLM_FALLBACK_TO_MOCK", "false").lower() == "true"
 
     # توليد حتمي منخفض الحرارة (مقابلة طبية فقط، JSON فقط).
     LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", 0.0))
-    LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", 512))
+    # رُفع من 512 مع العقد الموحّد: صار الردّ الواحد يحمل السجل الطبي المنظَّم
+    # كاملاً (أعراض + قوائم أدوية/حساسية/مزمنة/عائلي) بالعربية **مع** السؤال،
+    # فسقف 512 كان يُخاطر بقطع الـJSON في منتصفه.
+    LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", 1024))
     # عدد المحاولات الكلي عند JSON غير صالح أو خطأ عابر (محاولة + إعادة).
     LLM_JSON_ATTEMPTS = int(os.getenv("LLM_JSON_ATTEMPTS", 3))
 

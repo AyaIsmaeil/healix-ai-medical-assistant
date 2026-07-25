@@ -1,12 +1,14 @@
 """
-اختبارات وحدة لمحرك المحادثة (ConversationService).
+اختبارات وحدة لوكيل المقابلة السريرية (ConversationService).
 
-تُستخدم منافذ وهمية (مستخرج أعراض + مزوّد LLM) فلا حاجة لنموذج حقيقي.
+بعد الانتقال لمعمارية LLM-first لم يعد هناك مستخرج أعراض مستقل: الأعراض
+والسجل المنظَّم يأتيان من نفس ردّ الـLLM الذي يحمل قرار الدور. لذلك تُحقن
+هنا ردود JSON مكتوبة مسبقاً (ScriptedProvider) تحمل الاثنين معاً — فلا حاجة
+لنموذج حقيقي ولا لمنفذ استخراج.
 """
 
 import json
-from dataclasses import dataclass
-from typing import List
+from typing import List, Optional
 
 from app.domain.ports import Completion
 from app.infrastructure.session_store import InMemorySessionStore
@@ -14,24 +16,36 @@ from app.prompts.interview_builder import InterviewPromptBuilder
 from app.services.conversation_service import ConversationService
 
 
-@dataclass
-class FakeExtracted:
-    text: str
-    negated: bool
-    confidence: float
+def turn(
+    *,
+    finished: bool = False,
+    next_slot: Optional[str] = None,
+    question: Optional[str] = None,
+    symptoms: Optional[List[dict]] = None,
+    **record,
+) -> dict:
+    """يبني ردّ LLM مطابقاً للعقد الموحّد (اختصار لتقليل ضجيج الاختبارات)."""
+    payload = {
+        "chief_complaint": None,
+        "symptoms": symptoms or [],
+        "severity": None,
+        "duration": None,
+        "body_location": None,
+        "medications": [],
+        "allergies": [],
+        "chronic_conditions": [],
+        "family_history": [],
+        "missing_fields": [],
+        "finished": finished,
+        "next_slot": next_slot,
+        "question": question,
+    }
+    payload.update(record)
+    return payload
 
 
-class FakeExtractor:
-    """يُرجع أعراضاً محدّدة مسبقاً لكل نصّ (حسب الاستدعاء)."""
-
-    def __init__(self, scripts: List[List[FakeExtracted]]):
-        self._scripts = scripts
-        self._i = 0
-
-    def extract(self, text: str) -> List[FakeExtracted]:
-        result = self._scripts[self._i] if self._i < len(self._scripts) else []
-        self._i += 1
-        return result
+def sym(text: str, negated: bool = False, confidence: float = 0.9) -> dict:
+    return {"text": text, "negated": negated, "confidence": confidence}
 
 
 class ScriptedProvider:
@@ -49,9 +63,8 @@ class ScriptedProvider:
         return Completion(json.dumps(resp, ensure_ascii=False), model="scripted")
 
 
-def _service(extractor, provider, max_questions=8):
+def _service(provider, max_questions=8):
     return ConversationService(
-        extractor=extractor,
         provider=provider,
         prompt_builder=InterviewPromptBuilder(),
         store=InMemorySessionStore(),
@@ -60,12 +73,11 @@ def _service(extractor, provider, max_questions=8):
 
 
 def test_first_turn_extracts_stores_and_asks():
-    extractor = FakeExtractor([[FakeExtracted("صداع", False, 0.9),
-                               FakeExtracted("حرارة", False, 0.8)]])
     provider = ScriptedProvider([
-        {"finished": False, "next_slot": "onset", "question": "منذ متى؟"},
+        turn(next_slot="onset", question="منذ متى؟",
+             symptoms=[sym("صداع"), sym("حرارة", confidence=0.8)]),
     ])
-    svc = _service(extractor, provider)
+    svc = _service(provider)
 
     state, decision = svc.handle_message("أعاني من صداع وحرارة", session_id=None)
 
@@ -79,15 +91,12 @@ def test_first_turn_extracts_stores_and_asks():
 
 
 def test_second_turn_keeps_all_raw_messages_and_clears_pending():
-    extractor = FakeExtractor([
-        [FakeExtracted("صداع", False, 0.9)],
-        [],  # no new symptoms on the answer
-    ])
     provider = ScriptedProvider([
-        {"finished": False, "next_slot": "onset", "question": "منذ متى؟"},
-        {"finished": False, "next_slot": "severity", "question": "ما الشدة؟"},
+        turn(next_slot="onset", question="منذ متى؟", symptoms=[sym("صداع")]),
+        # لا أعراض جديدة في ردّ الدور الثاني.
+        turn(next_slot="severity", question="ما الشدة؟", symptoms=[sym("صداع")]),
     ])
-    svc = _service(extractor, provider)
+    svc = _service(provider)
 
     state, _ = svc.handle_message("عندي صداع", session_id=None)
     sid = state.session_id
@@ -104,9 +113,8 @@ def test_second_turn_keeps_all_raw_messages_and_clears_pending():
 
 
 def test_finished_marks_state_completed():
-    extractor = FakeExtractor([[FakeExtracted("صداع", False, 0.9)]])
-    provider = ScriptedProvider([{"finished": True}])
-    svc = _service(extractor, provider)
+    provider = ScriptedProvider([turn(finished=True, symptoms=[sym("صداع")])])
+    svc = _service(provider)
 
     state, decision = svc.handle_message("عندي صداع", session_id=None)
 
@@ -116,15 +124,11 @@ def test_finished_marks_state_completed():
 
 
 def test_symptoms_are_deduplicated_across_turns():
-    extractor = FakeExtractor([
-        [FakeExtracted("صداع", False, 0.9)],
-        [FakeExtracted("صداع", False, 0.9)],  # repeated
-    ])
     provider = ScriptedProvider([
-        {"finished": False, "next_slot": "onset", "question": "منذ متى؟"},
-        {"finished": False, "next_slot": "severity", "question": "ما الشدة؟"},
+        turn(next_slot="onset", question="منذ متى؟", symptoms=[sym("صداع")]),
+        turn(next_slot="severity", question="ما الشدة؟", symptoms=[sym("صداع")]),
     ])
-    svc = _service(extractor, provider)
+    svc = _service(provider)
 
     state, _ = svc.handle_message("صداع", session_id=None)
     state, _ = svc.handle_message("صداع", session_id=state.session_id)
@@ -132,41 +136,56 @@ def test_symptoms_are_deduplicated_across_turns():
     assert len([s for s in state.symptoms if s.text == "صداع"]) == 1
 
 
-def test_max_questions_cap_forces_finish():
-    extractor = FakeExtractor([[], []])
+def test_structured_record_accumulates_across_turns():
+    """السجل المنظَّم يتراكم ولا يُستبدل بمخرجات دور واحد."""
     provider = ScriptedProvider([
-        {"finished": False, "next_slot": "onset", "question": "س1؟"},
-        # second turn should not consult the provider because cap is reached
+        turn(next_slot="onset", question="منذ متى؟", symptoms=[sym("صداع")],
+             chief_complaint="صداع", medications=["بنادول"]),
+        turn(next_slot="severity", question="ما الشدة؟", symptoms=[sym("صداع")],
+             duration="ثلاثة أيام", allergies=["بنسلين"], missing_fields=["age"]),
     ])
-    svc = _service(extractor, provider, max_questions=1)
+    svc = _service(provider)
 
-    state, _ = svc.handle_message("مرحبا", session_id=None)  # asks 1 question
-    state, decision = svc.handle_message("جواب", session_id=state.session_id)
+    state, _ = svc.handle_message("عندي صداع وآخذ بنادول", session_id=None)
+    state, _ = svc.handle_message("من ثلاثة أيام وعندي حساسية بنسلين",
+                                  session_id=state.session_id)
+
+    record = state.record
+    assert record.chief_complaint == "صداع"      # لم تُمحَ بدور لم يُعدها
+    assert record.duration == "ثلاثة أيام"
+    assert record.medications == ["بنادول"]
+    assert record.allergies == ["بنسلين"]
+    assert record.missing_fields == ["age"]      # لقطة لحظية (تُستبدل)
+
+
+def test_max_questions_cap_forces_finish():
+    """السقف يفرض الإنهاء مهما اقترح النموذج — لكن الاستخراج يبقى محفوظاً.
+
+    المزوّد يُستشار في الدور الأخير أيضاً (بخلاف التصميم القديم) حتى لا تضيع
+    المعلومات الطبية في رسالة المريض الأخيرة؛ القرار وحده هو ما يُتجاوز.
+    """
+    provider = ScriptedProvider([
+        turn(next_slot="onset", question="س1؟"),
+        turn(next_slot="severity", question="س2؟", symptoms=[sym("صداع")],
+             medications=["بنادول"]),
+    ])
+    svc = _service(provider, max_questions=1)
+
+    state, _ = svc.handle_message("مرحبا", session_id=None)  # سؤال واحد
+    state, decision = svc.handle_message("عندي صداع وآخذ بنادول",
+                                         session_id=state.session_id)
 
     assert decision.finished is True
     assert state.status.value == "completed"
-
-
-class OneShotExtractor:
-    """يُرجع أعراضاً في أول دور فقط، ولا شيء بعدها."""
-
-    def __init__(self, first):
-        self._first = first
-        self._done = False
-
-    def extract(self, text):
-        if self._done:
-            return []
-        self._done = True
-        return self._first
+    # الاستخراج من الرسالة الأخيرة لم يُفقَد رغم فرض الإنهاء.
+    assert {s.text for s in state.symptoms} == {"صداع"}
+    assert state.record.medications == ["بنادول"]
 
 
 def test_dynamic_interview_with_mock_provider_asks_fever_specifics_and_finishes():
     from app.llm.mock_provider import MockLLMProvider
 
-    extractor = OneShotExtractor([FakeExtracted("حرارة", False, 0.9)])
     svc = ConversationService(
-        extractor=extractor,
         provider=MockLLMProvider(),
         prompt_builder=InterviewPromptBuilder(),
         store=InMemorySessionStore(),
@@ -178,7 +197,7 @@ def test_dynamic_interview_with_mock_provider_asks_fever_specifics_and_finishes(
     questions = []
     finished = False
     for _ in range(40):
-        answer = "منذ يومين" if sid is None else "لا أعرف"
+        answer = "عندي حرارة منذ يومين" if sid is None else "لا أعرف"
         state, decision = svc.handle_message(answer, sid)
         sid = state.session_id
         if decision.finished:
@@ -201,14 +220,70 @@ def test_dynamic_interview_with_mock_provider_asks_fever_specifics_and_finishes(
 
 
 def test_repeated_slot_from_llm_ends_interview():
-    extractor = FakeExtractor([[], []])
+    # يلزم وجود عرَض، وإلا فحارس "لا إنهاء بلا أعراض" له الأولوية (أدناه).
     provider = ScriptedProvider([
-        {"finished": False, "next_slot": "onset", "question": "منذ متى؟"},
-        {"finished": False, "next_slot": "onset", "question": "منذ متى مجدداً؟"},
+        turn(next_slot="onset", question="منذ متى؟", symptoms=[sym("صداع")]),
+        turn(next_slot="onset", question="منذ متى مجدداً؟", symptoms=[sym("صداع")]),
     ])
-    svc = _service(extractor, provider)
+    svc = _service(provider)
 
-    state, _ = svc.handle_message("مرحبا", session_id=None)
+    state, _ = svc.handle_message("عندي صداع", session_id=None)
     state, decision = svc.handle_message("جواب", session_id=state.session_id)
 
     assert decision.finished is True
+
+
+def test_never_finishes_before_any_symptom_is_collected():
+    """حارس المجال: الـ LLM قد يُنهي بعد "مرحبا/كيفك" — المحرك يمنع ذلك."""
+    provider = ScriptedProvider([turn(finished=True), turn(finished=True)])
+    svc = _service(provider)
+
+    state, decision = svc.handle_message("مرحبا", session_id=None)
+    assert decision.finished is False
+    assert decision.next_slot == "chief_complaint"
+
+    state, decision = svc.handle_message("كيفك", session_id=state.session_id)
+    assert decision.finished is False
+    assert decision.next_slot == "chief_complaint"
+
+
+def test_negated_symptoms_are_stored_and_do_not_satisfy_the_guard():
+    """عرَض منفيّ ليس عرَضاً مُثبَتاً: الحارس يبقى مُفعَّلاً."""
+    provider = ScriptedProvider([turn(finished=True, symptoms=[sym("سعال", negated=True)])])
+    svc = _service(provider)
+
+    state, decision = svc.handle_message("ما في سعال", session_id=None)
+
+    assert [(s.text, s.negated) for s in state.symptoms] == [("سعال", True)]
+    assert decision.finished is False
+    assert decision.next_slot == "chief_complaint"
+
+
+def test_llm_question_is_not_overridden_before_any_symptom():
+    """ما دام الـLLM يسأل، سؤاله هو المعتمد — حتى قبل استخراج أي عرَض.
+
+    سابقاً كان المحرك يستبدله بسؤال ثابت يكاد يطابق تحية البداية، فيرى
+    المريض السؤال نفسه مرّتين.
+    """
+    provider = ScriptedProvider([
+        turn(next_slot="context:age", question="كم عمرك؟"),  # بلا أعراض
+    ])
+    svc = _service(provider)
+
+    state, decision = svc.handle_message("مرحبا دكتور", session_id=None)
+
+    assert state.symptoms == []          # فعلاً لا عرَض بعد
+    assert decision.finished is False
+    assert decision.question == "كم عمرك؟"        # سؤال النموذج كما هو
+    assert decision.next_slot == "context:age"
+
+
+def test_guard_still_blocks_finishing_with_no_symptom():
+    """الضمان الطبي باقٍ: محاولة الإنهاء بلا عرَض مُثبَت تُرفض."""
+    provider = ScriptedProvider([turn(finished=True)])
+    svc = _service(provider)
+
+    _, decision = svc.handle_message("مرحبا", session_id=None)
+
+    assert decision.finished is False
+    assert decision.next_slot == "chief_complaint"
