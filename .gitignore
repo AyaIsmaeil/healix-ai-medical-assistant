@@ -44,6 +44,17 @@ models/*.bin
 models/*.pt
 *.safetensors
 
+# ML pipeline (ml-pipeline branch)
+# بيانات DDXPlus الخام (كبيرة، لا تُرفع للـgit)
+data/raw/*
+!data/raw/.gitkeep
+# مصفوفات الترميز المُولَّدة (قابلة لإعادة الإنتاج عبر 02_encode.ipynb)
+data/processed/*
+# النماذج المدرَّبة
+models/*.pkl
+models/*.joblib
+!models/.gitkeep
+
 # Legacy MARBERT NER weights — the model was removed with the migration to
 # the LLM-first clinical interview. Kept ignored so any leftover local copy
 # (app/models/marbert-ner/, ~1.3 GB) can never be committed by accident.
@@ -72,3 +83,5 @@ logs/
 
 docs/*
 notebooks/*
+!notebooks/01_explore.ipynb
+!notebooks/02_encode.ipynb
