@@ -44,7 +44,7 @@ models/*.bin
 models/*.pt
 *.safetensors
 
-# ML pipeline (ml-pipeline branch)
+# ML pipeline (DDXPlus)
 # بيانات DDXPlus الخام (كبيرة، لا تُرفع للـgit)
 data/raw/*
 !data/raw/.gitkeep
@@ -85,3 +85,5 @@ docs/*
 notebooks/*
 !notebooks/01_explore.ipynb
 !notebooks/02_encode.ipynb
+!notebooks/03_train.ipynb
+!notebooks/04_smart_selection.ipynb
