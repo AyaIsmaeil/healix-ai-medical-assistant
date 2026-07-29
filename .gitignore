@@ -53,6 +53,7 @@ data/processed/*
 # النماذج المدرَّبة
 models/*.pkl
 models/*.joblib
+models/*.npz
 !models/.gitkeep
 
 # Legacy MARBERT NER weights — the model was removed with the migration to
@@ -87,3 +88,5 @@ notebooks/*
 !notebooks/02_encode.ipynb
 !notebooks/03_train.ipynb
 !notebooks/04_smart_selection.ipynb
+!notebooks/05_finalize.ipynb
+!notebooks/06_demo.ipynb
