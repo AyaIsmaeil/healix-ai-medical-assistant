@@ -55,6 +55,10 @@ models/*.pkl
 models/*.joblib
 models/*.npz
 !models/.gitkeep
+# label_encoder صغير جداً (~1.6KB، ليس "وزن نموذج") ومطلوب لتشغيل
+# MLDiseasePredictor محلياً بلا data/ (junction على جهاز واحد فقط) — يُستثنى
+# صراحةً من استبعاد *.joblib أعلاه ليصل لأي متعاون آخر عبر git.
+!models/label_encoder.joblib
 
 # Legacy MARBERT NER weights — the model was removed with the migration to
 # the LLM-first clinical interview. Kept ignored so any leftover local copy
