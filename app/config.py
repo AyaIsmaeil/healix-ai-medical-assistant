@@ -62,6 +62,13 @@ class Config:
     # عدد المحاولات الكلي عند JSON غير صالح أو خطأ عابر (محاولة + إعادة).
     LLM_JSON_ATTEMPTS = int(os.getenv("LLM_JSON_ATTEMPTS", 3))
 
+    # ------------------------------------------------------------------
+    # مُتنبِّئ المرض — مسار ML موازٍ (Phase 3.4)
+    # ------------------------------------------------------------------
+    # عند التفعيل: MLDiseasePredictor (models/) يُحقَن بدل RuleBasedDiseasePredictor
+    # القاعدي — بلا حذف أو تعديل الأخير، فقط تفرّع بـmain.py.
+    USE_ML_PREDICTOR = os.getenv("USE_ML_PREDICTOR", "false").lower() == "true"
+
 class DevelopmentConfig(Config):
     """إعدادات بيئة التطوير"""
     RELOAD = True
