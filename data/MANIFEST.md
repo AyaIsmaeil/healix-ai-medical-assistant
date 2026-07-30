@@ -44,3 +44,18 @@ sha256sum data/raw/release_conditions.json data/raw/release_evidences.json \
   data/raw/release_train_patients.csv data/raw/release_validate_patients.csv \
   data/raw/release_test_patients.csv
 ```
+
+## بيئة التدريب
+
+النماذج المحفوظة في `models/` (`logreg_demo.pkl`, `logreg_final.pkl`) دُرِّبت بهذه البيئة تحديداً — مُثبَّتة
+فعلياً، لا مُفترَضة:
+
+| الأداة | الإصدار |
+|---|---|
+| Python | 3.12.0 |
+| scikit-learn | 1.8.0 |
+| joblib | 1.3.2 |
+
+⚠️ `requirements.txt` يُثبِّت `scikit-learn>=1.3.2` (نطاق، لا تثبيت دقيق) — فتح ملفات `.pkl` هذه ببيئة على
+إصدار scikit-learn مختلف جوهرياً عن 1.8.0 قد يفشل أو يُصدر `InconsistentVersionWarning`. عند مشكلة تحميل،
+قارن إصدارك بالجدول أعلاه أولاً.

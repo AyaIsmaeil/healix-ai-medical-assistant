@@ -14,12 +14,14 @@ from app.config import config
 from app.domain.feature_encoder import FeatureEncoder
 from app.domain.feature_extraction_rules import RuleBasedFeatureExtractor
 from app.domain.feature_validator import FeatureValidator
+from app.domain.ml_disease_predictor import MLDiseasePredictor
 from app.domain.rule_based_confidence_estimator import RuleBasedConfidenceEstimator
 from app.domain.rule_based_predictor import RuleBasedDiseasePredictor
 from app.domain.rule_based_specialty_recommender import RuleBasedSpecialtyRecommender
 from app.domain.rule_based_urgency_classifier import RuleBasedUrgencyClassifier
 from app.exceptions import HealixError, ModelLoadError, ModelNotLoadedError
 from app.infrastructure.dictionary_loader import DictionaryLoader
+from app.infrastructure.model_loader import ModelLoader
 from app.infrastructure.session_store import InMemorySessionStore
 from app.llm.factory import build_llm_provider
 from app.parsing.assessment_explainer_parser import (
@@ -111,7 +113,18 @@ async def lifespan(app: FastAPI):
     # مُتنبِّئ المرض (Phase 3.4) — Adapter قاعدي أول (Placeholder)، يحقّق
     # عقد DiseasePredictorPort الذي ستستخدمه adapters ML لاحقاً (XGBoost/
     # RandomForest/CatBoost) — استبدال هذا السطر فقط، بلا تغيير بقية النظام.
-    app.state.disease_predictor = RuleBasedDiseasePredictor()
+    #
+    # مسار ML موازٍ (USE_ML_PREDICTOR): عند التفعيل، ModelLoader.load_all()
+    # يحمّل النموذج المحفوظ في models/ (يتحقّق من تطابق الأبعاد فوراً، يفشل
+    # الإقلاع بوضوح عند أي انحراف) ويُحقَن MLDiseasePredictor بدلاً من الـ
+    # Adapter القاعدي — بلا حذف أو تعليق السطر القاعدي أدناه، فقط تفرّع.
+    if config.USE_ML_PREDICTOR:
+        ml_model, ml_feature_names, ml_label_encoder = ModelLoader.load_all()
+        app.state.disease_predictor = MLDiseasePredictor(
+            model=ml_model, feature_names=ml_feature_names, label_encoder=ml_label_encoder,
+        )
+    else:
+        app.state.disease_predictor = RuleBasedDiseasePredictor()
 
     # مُصنِّف الاستعجال (Phase 3.5) — Adapter قاعدي أول (Placeholder)، يحقّق
     # عقد UrgencyClassifierPort الذي سيستخدمه نموذج ML لاحقاً — استبدال هذا
