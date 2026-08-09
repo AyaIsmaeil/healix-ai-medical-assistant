@@ -12,7 +12,9 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Iterable, List, Optional
 
-from app.domain.clinical_record import ClinicalRecord
+from app.domain.clinical_record import ClinicalRecord, FactSource
+from app.domain.clinical_priority import SymptomPriority
+from app.domain.red_flags import RedFlagAssessment
 
 
 class InterviewStatus(str, Enum):
@@ -24,11 +26,30 @@ class InterviewStatus(str, Enum):
 
 @dataclass
 class Symptom:
-    """عرض مستخرَج مخزَّن في الجلسة (مستقل عن طبقة الاستخراج)."""
+    """عرض مستخرَج مخزَّن في الجلسة (مستقل عن طبقة الاستخراج).
+
+    حقول إثبات المصدر اختيارية بقيم افتراضية — إضافة غير كاسرة: كل مُنشئ
+    حالي (``Symptom(text, negated, confidence)``) يبقى صالحاً دون تعديل.
+
+    ``source`` يُضبط بالتحقّق الحتمي لا بتصريح النموذج عن نفسه: يُبحث عن
+    ``evidence`` داخل كلام المريض فعلياً، فإن لم يُعثر عليه صُنّف العرَض
+    استنتاجاً. نموذج يختلق شاهداً لا يستطيع أن يمنح نفسه صفة "مؤكَّد".
+    """
 
     text: str
     negated: bool
     confidence: float
+    # نصّ المريض الحرفي الذي يسند هذا العرَض (لا إعادة صياغة).
+    evidence: Optional[str] = None
+    source: FactSource = FactSource.UNKNOWN
+    turn_number: int = 0
+
+    @property
+    def is_patient_stated(self) -> bool:
+        """هل صدر عن المريض فعلاً (تحقّق نصّي) لا استنتاجاً؟"""
+        return self.source in (
+            FactSource.PATIENT_EXPLICIT, FactSource.PATIENT_IMPLIED
+        )
 
 
 @dataclass
@@ -64,6 +85,18 @@ class ConversationState:
     pending_slot: Optional[str] = None
     # السجل الطبي المنظَّم المتراكم (يملؤه الـLLM دوراً بعد دور، بلا فقدان).
     record: ClinicalRecord = field(default_factory=ClinicalRecord)
+    # حصيلة تقييم الأعلام الحمراء لآخر دور (تصعيد فقط، لا تخفيض).
+    risk: RedFlagAssessment = field(default_factory=RedFlagAssessment)
+    # هل بدأت هذه الجلسة من جديد لأنّ معرّفها غير معروف/منتهي الصلاحية؟
+    # تُقرأ لإعلام المريض بدل متابعة الحوار بسجلّ فارغ صامت.
+    session_restarted: bool = False
+    # --- قرار محرّك الأولوية السريرية (P1) ---
+    # الشكوى الرئيسية **الحالية** كما قرّرها المحرّك، تُعاد حسبتها كل دور.
+    # ليست ما استخرجه الـLLM في ``record.chief_complaint``: تلك نصّ استخرجه
+    # النموذج، وهذه قرار المحرّك عن محور الأسئلة الآن.
+    primary_complaint: Optional[str] = None
+    # ترتيب الأعراض مع تفكيك الدرجة — للتفسير والتدقيق.
+    symptom_priorities: List[SymptomPriority] = field(default_factory=list)
 
     # ------------------------------------------------------------------
     # الاستعلامات

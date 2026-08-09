@@ -22,6 +22,24 @@ class SymptomOut(BaseModel):
     negated: bool
     # أُضيف مع معمارية LLM-first (إضافة غير كاسرة؛ المستهلك القديم يتجاهله).
     confidence: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    # إثبات المصدر: هل ذكره المريض فعلاً أم استنتجه النموذج؟
+    source: Optional[str] = Field(
+        default=None,
+        description="patient_explicit | llm_inferred — مصدر هذا العرَض",
+    )
+    evidence: Optional[str] = Field(
+        default=None, description="نصّ المريض الحرفي المُسنِد للعرَض",
+    )
+
+
+class RedFlagOut(BaseModel):
+    """علم أحمر أُطلق — يُعرَض للتفسير والتدقيق، لا للتشخيص."""
+
+    rule_id: str
+    name_ar: str
+    name_en: str
+    risk_level: str
+    evidence: Optional[str] = None
 
 
 class InterviewTurnRequest(BaseModel):
@@ -81,4 +99,41 @@ class InterviewTurnResponse(BaseModel):
     )
     next_question: Optional[str] = Field(
         default=None, description="مرآة لـquestion بتسمية العقد الجديد"
+    )
+
+    # --- طبقة السلامة (إضافة غير كاسرة) ---
+    # ملاحظة عقد: هذه الحقول **لا تُشخّص**. تشير إلى احتمال استعجال وتوصي
+    # برعاية مهنية/طارئة فقط — ولا تذكر مرضاً ولا احتماله.
+    emergency_detected: bool = Field(
+        default=False,
+        description="هل أُطلق علم أحمر يستوجب رعاية عاجلة؟",
+    )
+    risk_level: str = Field(
+        default="none", description="none | low | urgent | immediate",
+    )
+    red_flags: List[RedFlagOut] = Field(
+        default_factory=list, description="الأعلام الحمراء التي أُطلقت",
+    )
+    recommended_action: Optional[str] = Field(
+        default=None,
+        description="التوجيه الموصى به بالعربية عند وجود طارئ (لا تشخيص)",
+    )
+    safety_screening_degraded: bool = Field(
+        default=False,
+        description="تعذّر الاستخراج (فشل الـLLM) وصدر الحكم من الفحص الحتمي وحده",
+    )
+    primary_complaint: Optional[str] = Field(
+        default=None,
+        description=(
+            "الشكوى الرئيسية الحالية كما قرّرها محرّك الأولوية السريرية. "
+            "تختلف عن chief_complaint: تلك نصّ استخرجه النموذج، وهذه قرار "
+            "المحرّك عن محور الأسئلة الآن، ويُعاد حسابه بعد كل رسالة."
+        ),
+    )
+    session_restarted: bool = Field(
+        default=False,
+        description=(
+            "معرّف الجلسة المُرسَل غير معروف أو انتهت صلاحيته، فبدأ سجلّ جديد. "
+            "على العميل إعلام المريض بدل متابعة الحوار وكأنّ السياق محفوظ."
+        ),
     )

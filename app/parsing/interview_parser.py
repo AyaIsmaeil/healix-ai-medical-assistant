@@ -157,9 +157,19 @@ def _parse_symptoms(data: Dict[str, Any]) -> List[Symptom]:
         # التقييد لا الرفض: قيمة خارج المدى خطأ تنسيق لا خطأ طبي.
         confidence = max(0.0, min(1.0, float(confidence)))
 
-        symptoms.append(
-            Symptom(text=text.strip(), negated=negated, confidence=confidence)
-        )
+        # الشاهد اختياري بالعقد؛ التحقّق من صدقه مسؤولية طبقة لاحقة حتمية،
+        # فالمحلّل لا يملك كلام المريض أصلاً ليقارن به.
+        evidence = entry.get("evidence")
+        if evidence is not None and not isinstance(evidence, str):
+            raise InterviewParsingError("الحقل 'evidence' يجب أن يكون نصاً أو null.")
+        evidence = evidence.strip() if isinstance(evidence, str) else None
+
+        symptoms.append(Symptom(
+            text=text.strip(),
+            negated=negated,
+            confidence=confidence,
+            evidence=evidence or None,
+        ))
     return symptoms
 
 

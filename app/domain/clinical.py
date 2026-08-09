@@ -124,6 +124,22 @@ def _positive_symptoms(symptoms: Sequence[SymptomView]) -> List[SymptomView]:
     return [s for s in symptoms if not getattr(s, "negated", False)]
 
 
+def _resolve_primary(
+    positives: Sequence[SymptomView], primary: Optional[str]
+) -> str:
+    """الشكوى الرئيسية المعتمدة لبناء قائمة التساؤل.
+
+    تُقبل ``primary`` القادمة من محرّك الأولوية **فقط** إن كانت تطابق عرَضاً
+    مُثبَتاً حاضراً فعلاً: قيمة قديمة أو مُختلَقة كانت ستبني قائمة أسئلة عن
+    عرَض لا وجود له في الجلسة.
+    """
+    if primary:
+        for symptom in positives:
+            if symptom.text == primary:
+                return primary
+    return positives[0].text
+
+
 def _is_male(context_text: str) -> bool:
     """هل دلّ كلام المريض على أنه ذكر؟ (الأنثى لها الأولوية لتجنّب الالتباس)."""
     if any(hint in context_text for hint in _FEMALE_HINTS):
@@ -134,6 +150,7 @@ def _is_male(context_text: str) -> bool:
 def build_checklist(
     symptoms: Sequence[SymptomView],
     context_text: str = "",
+    primary: Optional[str] = None,
 ) -> List[ChecklistItem]:
     """
     بناء قائمة التساؤل المرتّبة (target, question) للحالة الراهنة.
@@ -155,7 +172,11 @@ def build_checklist(
     if not positives:
         return [("chief_complaint", "هل يمكنك وصف الأعراض التي تشعر بها بالتفصيل؟")]
     else:
-        primary = positives[0].text
+        # ``primary`` يُحدَّد بمحرّك الأولوية السريرية (ClinicalPriorityEngine)
+        # ويُمرَّر من الأعلى. الرجوع إلى أوّل عرَض عند غيابه ليس اختياراً
+        # سريرياً بل تدهور آمن للسلوك السابق حين لا يكون المحرّك محقوناً
+        # (اختبارات قديمة، مسارات لا تملكه) — انظر توثيق الوحدة.
+        primary = _resolve_primary(positives, primary)
         for spec in CORE_SLOTS:
             target = f"{spec.slot}@{primary}"
             if target in seen:
@@ -191,9 +212,10 @@ def next_missing(
     symptoms: Sequence[SymptomView],
     context_text: str,
     asked: Sequence[str],
+    primary: Optional[str] = None,
 ) -> Optional[ChecklistItem]:
     """أوّل خانة غير مُغطّاة في القائمة، أو None عند اكتمال جمع التاريخ."""
-    checklist = build_checklist(symptoms, context_text)
+    checklist = build_checklist(symptoms, context_text, primary)
 
     # ما دام المريض لم يذكر أي عرَض، نُصرّ على الشكوى الرئيسية حتى لو سبق
     # السؤال عنها — وإلا خلت القائمة فتنتهي المقابلة بلا أي أعراض إطلاقاً.
@@ -213,9 +235,10 @@ def missing_targets(
     context_text: str,
     asked: Sequence[str],
     limit: Optional[int] = None,
+    primary: Optional[str] = None,
 ) -> List[str]:
     """قائمة الخانات المفقودة عالية القيمة (لإرشاد الـ LLM)."""
-    checklist = build_checklist(symptoms, context_text)
+    checklist = build_checklist(symptoms, context_text, primary)
 
     # بلا أعراض: تبقى الشكوى الرئيسية هي المطلوب الوحيد (ولو سُئلت سابقاً).
     if not _positive_symptoms(symptoms):
