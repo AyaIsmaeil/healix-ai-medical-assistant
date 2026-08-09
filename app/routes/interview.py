@@ -22,6 +22,7 @@ from app.exceptions import (
 from app.schemas.interview import (
     InterviewTurnRequest,
     InterviewTurnResponse,
+    RedFlagOut,
     SymptomOut,
 )
 from app.services.conversation_service import ConversationService
@@ -74,7 +75,10 @@ async def interview_turn(
         turn=state.turn_count,
         status=state.status.value,
         symptoms=[
-            SymptomOut(text=s.text, negated=s.negated, confidence=s.confidence)
+            SymptomOut(
+                text=s.text, negated=s.negated, confidence=s.confidence,
+                source=s.source.value, evidence=s.evidence,
+            )
             for s in state.symptoms
         ],
         # السجل الطبي المنظَّم (إضافة LLM-first).
@@ -90,4 +94,20 @@ async def interview_turn(
         # مرآتا العقد الجديد — نفس مصدر الحقيقة، لا قيمة مستقلة.
         interview_complete=decision.finished,
         next_question=decision.question,
+        # طبقة السلامة — تُشتقّ كلّها من state.risk (مصدر حقيقة واحد).
+        emergency_detected=state.risk.is_emergency,
+        risk_level=state.risk.risk_level.value,
+        red_flags=[
+            RedFlagOut(
+                rule_id=m.rule_id, name_ar=m.name_ar, name_en=m.name_en,
+                risk_level=m.risk_level.value, evidence=m.evidence,
+            )
+            # فريدة لكل قاعدة: أثر التدقيق الكامل (كل طبقة) يبقى في المجال،
+            # والمريض لا يرى التنبيه ذاته مكرّراً.
+            for m in state.risk.unique_matches
+        ],
+        recommended_action=state.risk.primary_action_ar,
+        safety_screening_degraded=state.risk.degraded,
+        primary_complaint=state.primary_complaint,
+        session_restarted=state.session_restarted,
     )

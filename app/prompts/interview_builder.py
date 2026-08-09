@@ -42,6 +42,7 @@ LABEL_KNOWN_RECORD = "KNOWN_RECORD"
 LABEL_ASKED = "ASKED_SLOTS"
 LABEL_TURN = "TURN_COUNT"
 LABEL_SUGGESTED = "SUGGESTED_MISSING_SLOTS"
+LABEL_PRIMARY = "PRIMARY_COMPLAINT"
 
 # عدد الخانات المقترحة التي تُمرَّر للـ LLM كإرشاد.
 _SUGGESTION_LIMIT = 6
@@ -77,8 +78,12 @@ INTERVIEW_JSON_SCHEMA: Dict[str, Any] = {
                         "text": {"type": "string"},
                         "negated": {"type": "boolean"},
                         "confidence": {"type": "number"},
+                        # الشاهد: مقطع حرفي من كلام المريض. يُتحقَّق منه
+                        # حتمياً بعد الاستلام (هل يرد فعلاً في الرسائل؟)،
+                        # فلا يستطيع النموذج منح نفسه صفة "مؤكَّد".
+                        "evidence": {"type": ["string", "null"]},
                     },
-                    "required": ["text", "negated", "confidence"],
+                    "required": ["text", "negated", "confidence", "evidence"],
                     "additionalProperties": False,
                 },
             },
@@ -129,6 +134,11 @@ class InterviewPromptBuilder:
             "ب. لا تختلق أي معلومة لم يذكرها المريض صراحةً أو ضمناً بوضوح.\n"
             "ج. الأعراض المنفية تُدرَج في symptoms بـnegated=true (لا تُهمَل).\n"
             "د. confidence رقم بين 0 و1 يعبّر عن وضوح ورود العرَض في كلام المريض.\n"
+            "د٢. **evidence لكل عرَض: انسخ المقطع الحرفي من كلام المريض الذي "
+            "يدلّ عليه — نسخاً لا إعادة صياغة.** إن لم يكن العرَض مذكوراً "
+            "حرفياً (استنتجته) فاجعل evidence = null. لا تختلق شاهداً: "
+            "الشاهد يُتحقَّق منه آلياً في كلام المريض، والشاهد غير الموجود "
+            "يُسقط تأكيد العرَض.\n"
             "هـ. أعد الحقول التي لم تُذكر بعد كـnull (للمفردة) أو [] (للقوائم).\n"
             "و. أعد في KNOWN_* ما تراكم سلفاً وأضف إليه الجديد — لا تحذف معلومة سابقة.\n"
             "ز. missing_fields: أسماء المعلومات المهمّة الناقصة الآن فقط.\n\n"
@@ -147,7 +157,8 @@ class InterviewPromptBuilder:
             "خطورة أو توصية علاجية. مهمتك جمع المعلومات وتنظيمها فقط.\n\n"
             "أعد ردّك بصيغة JSON فقط، دون أي نصّ خارج JSON، بهذا الشكل حصراً:\n"
             '{"chief_complaint": <نص أو null>, '
-            '"symptoms": [{"text": "<عرَض>", "negated": false, "confidence": 0.9}], '
+            '"symptoms": [{"text": "<عرَض>", "negated": false, "confidence": 0.9, '
+            '"evidence": "<مقطع حرفي من كلام المريض أو null>"}], '
             '"severity": <نص أو null>, "duration": <نص أو null>, '
             '"body_location": <نص أو null>, "medications": [], "allergies": [], '
             '"chronic_conditions": [], "family_history": [], "missing_fields": [], '
@@ -160,11 +171,14 @@ class InterviewPromptBuilder:
         latest = state.raw_messages[-1] if state.raw_messages else ""
         # التغطية للتكرار: خانة تُعدّ مغطّاة بمجرّد طرح سؤال عنها.
         # كلام المريض كاملاً يُمرَّر ليُستنتج منه الجنس (فلا يُسأل الذكر عن الحمل).
+        # الاقتراحات تُبنى حول الشكوى الرئيسية التي قرّرها **المحرّك**، لا
+        # حول أوّل عرَض ذُكر. الـLLM يتلقّاها كإرشاد لا كقرار.
         suggested = clinical.missing_targets(
             state.symptoms,
             " ".join(state.raw_messages),
             state.asked_slots,
             limit=_SUGGESTION_LIMIT,
+            primary=state.primary_complaint,
         )
 
         record = state.record
@@ -188,6 +202,7 @@ class InterviewPromptBuilder:
             line(LABEL_KNOWN_SYMPTOMS, known),
             line(LABEL_KNOWN_NEGATED, known_negated),
             line(LABEL_KNOWN_RECORD, known_record),
+            line(LABEL_PRIMARY, state.primary_complaint),
             line(LABEL_ASKED, state.asked_slots),
             line(LABEL_TURN, state.turn_count),
             line(LABEL_SUGGESTED, suggested),
