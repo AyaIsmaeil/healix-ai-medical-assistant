@@ -37,6 +37,7 @@ app/data/**/*.csv
 app/data/**/*.xlsx
 app/data/**/*.json
 app/data/**/*.m4a
+app/data/**/*.parquet
 !app/data/category_info.json
 
 # Model files (local weight artifacts must never enter git)
@@ -64,6 +65,15 @@ models/*.npz
 # the LLM-first clinical interview. Kept ignored so any leftover local copy
 # (app/models/marbert-ner/, ~1.3 GB) can never be committed by accident.
 app/models/
+
+# Offline training workspace (large, reproducible from the notebooks) — the
+# regenerated train/test matrices (~446 MB) and the trained .pkl (~13 MB) must
+# never enter git. The notebooks/ and *.py under training/ ARE tracked (code);
+# only the heavy generated artifacts are excluded.
+training/data/
+training/models/*.pkl
+training/models/*.joblib
+training/models/*.npz
 
 # Environment
 .env
