@@ -46,9 +46,11 @@ from app.dependencies import (
     get_assessment_feature_builder,
     get_confidence_estimator,
     get_disease_predictor,
+    get_evidence_concept_extractor,
     get_feature_encoder,
     get_feature_validator,
     get_specialty_recommender,
+    get_symptom_evidence_encoder,
     get_urgency_classifier,
 )
 from app.domain.clinical_record import ClinicalRecord
@@ -73,7 +75,9 @@ from app.schemas.assessment import (
     SpecialtyRecommendationOut,
     UrgencyAssessmentOut,
 )
+from app.domain.symptom_evidence_encoder import SymptomEvidenceEncoder
 from app.services.assessment_feature_builder import AssessmentFeatureBuilder
+from app.services.evidence_concept_extractor import EvidenceConceptExtractor
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["محرك التقييم"])
@@ -96,6 +100,8 @@ async def run_assessment(
     builder: AssessmentFeatureBuilder = Depends(get_assessment_feature_builder),
     validator: FeatureValidator = Depends(get_feature_validator),
     encoder: FeatureEncoder = Depends(get_feature_encoder),
+    symptom_evidence_encoder: SymptomEvidenceEncoder = Depends(get_symptom_evidence_encoder),
+    evidence_concept_extractor: EvidenceConceptExtractor = Depends(get_evidence_concept_extractor),
     predictor: DiseasePredictorPort = Depends(get_disease_predictor),
     urgency_classifier: UrgencyClassifierPort = Depends(get_urgency_classifier),
     specialty_recommender: SpecialtyRecommenderPort = Depends(get_specialty_recommender),
@@ -132,6 +138,16 @@ async def run_assessment(
         )
         features = await loop.run_in_executor(None, partial(validator.validate, features))
         encoded = await loop.run_in_executor(None, partial(encoder.encode, features))
+        # يُثري متجه الأدلة برموز DDXPlus قبل مُتنبِّئ ML — v1.json نفسه يبقى
+        # بلا تعديل. مفاهيم الأدلة تُختار بالـLLM من قائمة مغلقة (لا مطابقة
+        # نصّية بايثون على أسماء أعراض حرّة — انظر توثيق القرار بـ
+        # evidence_concept_extraction_builder.py)، ثم تُحوَّل حتمياً لرموز
+        # E_* عبر symptom_evidence_encoder.py. المُتنبِّئ القاعدي يتجاهل
+        # هذا الإغناء تماماً (لا يقرأ إلا الحقول التسعة المعرَّفة بمخطّطه).
+        evidence_concepts = await loop.run_in_executor(
+            None, partial(evidence_concept_extractor.extract, request.raw_messages)
+        )
+        encoded.features.update(symptom_evidence_encoder.encode(evidence_concepts))
         prediction_result = await loop.run_in_executor(None, partial(predictor.predict, encoded))
         urgency = await loop.run_in_executor(
             None, partial(urgency_classifier.classify, features)

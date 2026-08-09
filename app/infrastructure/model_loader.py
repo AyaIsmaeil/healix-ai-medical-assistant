@@ -20,13 +20,13 @@ import joblib
 
 from app.exceptions import ModelLoadError
 
-EXPECTED_N_FEATURES = 974
+EXPECTED_N_FEATURES = 225
 EXPECTED_N_CLASSES = 49
 
 # models/ شقيق app/ (لا داخله) — ثلاث مستويات .parent من هذا الملف، بخلاف
 # DictionaryLoader (مستويين، حيث dictionaries/ داخل app/ نفسها).
 _MODELS_DIR = Path(__file__).resolve().parent.parent.parent / "models"
-_DEFAULT_MODEL_PATH = _MODELS_DIR / "logreg_final.pkl"
+_DEFAULT_MODEL_PATH = _MODELS_DIR / "xgboost_model.pkl"
 _DEFAULT_FEATURE_NAMES_PATH = _MODELS_DIR / "feature_names.json"
 _DEFAULT_LABEL_ENCODER_PATH = _MODELS_DIR / "label_encoder.joblib"
 

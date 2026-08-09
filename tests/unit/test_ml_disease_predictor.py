@@ -147,7 +147,7 @@ def test_feature_names_length_mismatch_raises_inference_error():
 # ----------------------------------------------------------------------
 def test_predictor_version_is_reported_on_every_result():
     result = _predictor().predict(_encoded(E_1=1, age=28, gender_male=0))
-    assert result.predictor_version == "ml-logreg-v1"
+    assert result.predictor_version == "ml-xgboost-v1"
     assert result.predictor_version == PREDICTOR_VERSION
 
 
