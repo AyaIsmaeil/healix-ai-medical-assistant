@@ -11,14 +11,17 @@ from fastapi.responses import JSONResponse
 load_dotenv()
 
 from app.config import config
+from app.domain.clinical_priority import ClinicalPriorityEngine
 from app.domain.feature_encoder import FeatureEncoder
 from app.domain.feature_extraction_rules import RuleBasedFeatureExtractor
 from app.domain.feature_validator import FeatureValidator
 from app.domain.ml_disease_predictor import MLDiseasePredictor
+from app.domain.red_flag_engine import RedFlagEngine
 from app.domain.rule_based_confidence_estimator import RuleBasedConfidenceEstimator
 from app.domain.rule_based_predictor import RuleBasedDiseasePredictor
 from app.domain.rule_based_specialty_recommender import RuleBasedSpecialtyRecommender
 from app.domain.rule_based_urgency_classifier import RuleBasedUrgencyClassifier
+from app.domain.symptom_evidence_encoder import SymptomEvidenceEncoder
 from app.exceptions import HealixError, ModelLoadError, ModelNotLoadedError
 from app.infrastructure.dictionary_loader import DictionaryLoader
 from app.infrastructure.model_loader import ModelLoader
@@ -32,6 +35,10 @@ from app.parsing.assessment_extraction_parser import (
     EXTRACTION_JSON_NUDGE,
     validate_extraction_shape,
 )
+from app.parsing.evidence_concept_extraction_parser import (
+    EVIDENCE_CONCEPT_JSON_NUDGE,
+    validate_evidence_concepts_shape,
+)
 from app.prompts.assessment_explainer_builder import (
     EXPLANATION_JSON_SCHEMA,
     AssessmentExplainerPromptBuilder,
@@ -39,6 +46,9 @@ from app.prompts.assessment_explainer_builder import (
 from app.prompts.assessment_extraction_builder import (
     EXTRACTION_JSON_SCHEMA,
     AssessmentExtractionPromptBuilder,
+)
+from app.prompts.evidence_concept_extraction_builder import (
+    EvidenceConceptExtractionPromptBuilder,
 )
 from app.parsing.interview_parser import (
     INTERVIEW_JSON_NUDGE,
@@ -52,6 +62,7 @@ from app.routes import assessment, health, interview, speech
 from app.services.assessment_explainer import AssessmentExplainer
 from app.services.assessment_feature_builder import AssessmentFeatureBuilder
 from app.services.conversation_service import ConversationService
+from app.services.evidence_concept_extractor import EvidenceConceptExtractor
 from app.services.llm_feature_extractor import LLMFeatureExtractor
 from app.services.speech_to_text import SpeechToTextService
 
@@ -67,6 +78,21 @@ async def lifespan(app: FastAPI):
     """تحميل النموذج وتهيئة الخدمات عند بدء التشغيل، والتنظيف عند الإغلاق."""
     logger.info(" بدء تشغيل خدمة Healix...")
 
+    # محرّك الأعلام الحمراء — حتمي بالكامل، يُحمَّل من app/dictionaries/
+    # مرّة واحدة هنا. DictionaryLoader يفشل الإقلاع بوضوح لو كان الكتالوج
+    # مشوّهاً: خدمة طبية تعمل بكشف طوارئ معطوب أسوأ من خدمة لا تقلع.
+    red_flag_engine = RedFlagEngine.from_dict(DictionaryLoader.load_red_flags())
+    app.state.red_flag_engine = red_flag_engine
+    logger.info("محرّك الأعلام الحمراء جاهز (إصدار %s).", red_flag_engine.version)
+
+    # [P1] محرّك الأولوية السريرية — يقرّر الشكوى الرئيسية الحالية حتمياً
+    # بعد كل رسالة. جدول مشوّه يعني ترتيب أسئلة خاطئاً، فيفشل الإقلاع بوضوح.
+    priority_engine = ClinicalPriorityEngine.from_dict(
+        DictionaryLoader.load_clinical_priority()
+    )
+    app.state.priority_engine = priority_engine
+    logger.info("محرّك الأولوية السريرية جاهز (إصدار %s).", priority_engine.version)
+
     # وكيل المقابلة السريرية (LLM-first): استدعاء واحد لكل دور يُنتج الاستخراج
     # المنظَّم وقرار السؤال معاً. عقد JSON مخصَّص (schema/validator/نص تصحيح)
     # بنفس آلية بقيّة المستهلكين — لا مزوّد مشترك الحالة بين المحرّكات.
@@ -77,15 +103,16 @@ async def lifespan(app: FastAPI):
             response_format_hint=INTERVIEW_JSON_NUDGE,
         ),
         prompt_builder=InterviewPromptBuilder(),
-        store=InMemorySessionStore(),
+        store=InMemorySessionStore(
+            ttl_seconds=config.SESSION_TTL_SECONDS,
+            max_sessions=config.MAX_ACTIVE_SESSIONS,
+        ),
         max_questions=config.MAX_QUESTIONS,
+        red_flag_engine=red_flag_engine,
+        priority_engine=priority_engine,
     )
 
-    # محرك التقييم (Phase 3.1: بناء الميزات فقط). مزوّد LLM مستقل عمداً عن
-    # مزوّد محرك المحادثة — عزل حالة التدهور/التكيّف بين المحرّكين.
-    # عقد JSON مخصَّص لمحرك التقييم (لا عقد المقابلة الافتراضي) — يحل مشكلة
-    # فرض json_mode="schema" لشكل قرار المقابلة على استدعاءات استخراج
-    # الميزات (انظر توثيق response_schema بـ openrouter_provider.py).
+
     app.state.assessment_feature_builder = AssessmentFeatureBuilder(
         rule_extractor=RuleBasedFeatureExtractor(),
         llm_extractor=LLMFeatureExtractor(
@@ -98,26 +125,35 @@ async def lifespan(app: FastAPI):
         ),
     )
 
-    # طبقة التحقّق من الميزات (Phase 3.2) — قواعد النطاق/التعداد محمَّلة من
-    # app/dictionaries/feature_validation_rules.json مرّة واحدة هنا، لا قراءة
-    # ملفات لكل طلب. DictionaryLoader يفشل الإقلاع بوضوح لو كانت مشوّهة.
+  
     validation_rules = DictionaryLoader.load_feature_validation_rules()
     app.state.feature_validator = FeatureValidator(rules=validation_rules)
 
-    # مشفِّر الميزات (Phase 3.3) — مخطّط الترميز محمَّل من
-    # app/dictionaries/feature_schemas/v1.json مرّة واحدة هنا. لا مُتنبِّئ
-    # يستهلكه بعد (مراحل قادمة) — يُبنى ويُحقَن فقط، جاهزاً حين يلزم.
+ 
     feature_schema = DictionaryLoader.load_feature_schema()
     app.state.feature_encoder = FeatureEncoder(schema=feature_schema)
 
-    # مُتنبِّئ المرض (Phase 3.4) — Adapter قاعدي أول (Placeholder)، يحقّق
-    # عقد DiseasePredictorPort الذي ستستخدمه adapters ML لاحقاً (XGBoost/
-    # RandomForest/CatBoost) — استبدال هذا السطر فقط، بلا تغيير بقية النظام.
-    #
-    # مسار ML موازٍ (USE_ML_PREDICTOR): عند التفعيل، ModelLoader.load_all()
-    # يحمّل النموذج المحفوظ في models/ (يتحقّق من تطابق الأبعاد فوراً، يفشل
-    # الإقلاع بوضوح عند أي انحراف) ويُحقَن MLDiseasePredictor بدلاً من الـ
-    # Adapter القاعدي — بلا حذف أو تعليق السطر القاعدي أدناه، فقط تفرّع.
+    # يربط مفاهيم أدلة DDXPlus (يختارها الـLLM من قائمة مغلقة، لا نص حرّ)
+    # برموز E_* قبل مُتنبِّئ ML — انظر توثيق الفجوة بـ symptom_evidence_encoder.py.
+    # مستقلّ عمداً عن FeatureEncoder (لا يعدّل مخطّط v1.json "المجمَّد").
+    symptom_evidence_map = DictionaryLoader.load_symptom_evidence_map()
+    symptom_evidence_encoder = SymptomEvidenceEncoder.from_dict(symptom_evidence_map)
+    app.state.symptom_evidence_encoder = symptom_evidence_encoder
+
+    # اختيار مفاهيم الأدلة المنطبقة: استدعاء LLM مستقل بعقد JSON خاص (enum
+    # مغلق مبني من قائمة المفاهيم المحقونة أعلاه — لا مطابقة نصّية بايثون).
+    evidence_concept_prompt_builder = EvidenceConceptExtractionPromptBuilder(
+        concepts=symptom_evidence_encoder.concepts
+    )
+    app.state.evidence_concept_extractor = EvidenceConceptExtractor(
+        provider=build_llm_provider(
+            response_schema=evidence_concept_prompt_builder.schema(),
+            response_validator=validate_evidence_concepts_shape,
+            response_format_hint=EVIDENCE_CONCEPT_JSON_NUDGE,
+        ),
+        prompt_builder=evidence_concept_prompt_builder,
+    )
+
     if config.USE_ML_PREDICTOR:
         ml_model, ml_feature_names, ml_label_encoder = ModelLoader.load_all()
         app.state.disease_predictor = MLDiseasePredictor(
@@ -126,33 +162,18 @@ async def lifespan(app: FastAPI):
     else:
         app.state.disease_predictor = RuleBasedDiseasePredictor()
 
-    # مُصنِّف الاستعجال (Phase 3.5) — Adapter قاعدي أول (Placeholder)، يحقّق
-    # عقد UrgencyClassifierPort الذي سيستخدمه نموذج ML لاحقاً — استبدال هذا
-    # السطر فقط، بلا تغيير بقية النظام. يعمل على ClinicalFeatureSet مباشرة،
-    # لا EncodedFeatures (خلافاً لمُتنبِّئ المرض).
+ 
     app.state.urgency_classifier = RuleBasedUrgencyClassifier()
 
-    # مُوصي التخصّص الطبي (Phase 3.6) — Adapter قاعدي أول (Placeholder)، يحقّق
-    # عقد SpecialtyRecommenderPort الذي سيستخدمه نموذج ML لاحقاً — استبدال هذا
-    # السطر فقط، بلا تغيير بقية النظام. قاموس (مرض → تخصّص) محمَّل من
-    # app/dictionaries/specialty_lookup.yaml مرّة واحدة هنا، لا قراءة ملفات
-    # لكل طلب.
+   
     specialty_lookup = DictionaryLoader.load_specialty_lookup()
     app.state.specialty_recommender = RuleBasedSpecialtyRecommender(
         specialty_lookup=specialty_lookup
     )
 
-    # مُقدِّر الموثوقية (Phase 3.7) — Adapter قاعدي أول (Placeholder)، يحقّق
-    # عقد ConfidenceEstimatorPort الذي سيستخدمه مُعايِر ثقة ML لاحقاً —
-    # استبدال هذا السطر فقط، بلا تغيير بقية النظام. آخر مرحلة بخطّ التقييم:
-    # يقرأ كل ما أُنتج ويُصدر حكماً على الثقة فقط (لا تنبؤ/استعجال/تخصّص).
     app.state.confidence_estimator = RuleBasedConfidenceEstimator()
 
-    # مُفسِّر التقييم (Phase 3.8) — المرحلة الأخيرة بالخطّ: يشرح ما حُسِب سلفاً
-    # بالعربية فقط (لا تشخيص، لا تعديل تنبؤ/استعجال/تخصّص/ثقة). مزوّد LLM
-    # مستقل بعقد JSON خاص بالتفسير (schema/validator/نص تصحيح) — معزول عن
-    # مزوّدَي المقابلة والاستخراج، بنفس آلية response_schema بالمزوّد. الخدمة
-    # تضمن الإرجاع دائماً (تدهور حتمي لطيف عند فشل الـLLM) فلا تُسقط التقييم.
+
     app.state.assessment_explainer = AssessmentExplainer(
         provider=build_llm_provider(
             response_schema=EXPLANATION_JSON_SCHEMA,
@@ -167,24 +188,28 @@ async def lifespan(app: FastAPI):
         try:
             app.state.speech_service = SpeechToTextService.load()
         except Exception as exc:  # noqa: BLE001 - الخدمة تبقى تعمل للنصّ إن فشل Whisper
-            logger.error("⚠️ تعذّر تحميل Whisper — سيتعطّل الصوت فقط: %s", exc)
+            logger.error(" تعذّر تحميل Whisper — سيتعطّل الصوت فقط: %s", exc)
             app.state.speech_service = None
     else:
         logger.info("Whisper معطّل عبر الإعدادات (ENABLE_WHISPER=false).")
         app.state.speech_service = None
 
-    logger.info("✅ الخدمة جاهزة")
+    logger.info(" الخدمة جاهزة")
     yield
     logger.info(" إيقاف خدمة Healix...")
     app.state.conversation_service = None
     app.state.assessment_feature_builder = None
     app.state.feature_validator = None
     app.state.feature_encoder = None
+    app.state.symptom_evidence_encoder = None
+    app.state.evidence_concept_extractor = None
     app.state.disease_predictor = None
     app.state.urgency_classifier = None
     app.state.specialty_recommender = None
     app.state.confidence_estimator = None
     app.state.assessment_explainer = None
+    app.state.red_flag_engine = None
+    app.state.priority_engine = None
     app.state.speech_service = None
 
 

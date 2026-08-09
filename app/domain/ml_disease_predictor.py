@@ -25,7 +25,10 @@ from app.domain.feature_encoder import EncodedFeatures
 from app.domain.prediction import DiseasePrediction, DiseasePredictionResult
 from app.exceptions import InferenceError
 
-PREDICTOR_VERSION = "ml-logreg-v1"
+# اسم النسخة يعكس النموذج المُحمَّل فعلياً (models/xgboost_model.pkl، XGBClassifier).
+# كان الاسم القديم "ml-logreg-v1" بينما الملف المُحمَّل XGBoost فعلياً — إعلان اسم
+# خوارزمية غير التي تعمل يُفسد أي مقارنة أو تقرير يُبنى على هذا المخرَج.
+PREDICTOR_VERSION = "ml-xgboost-v1"
 
 _EVIDENCE_PREFIX = "E_"
 _TOP_N = 5

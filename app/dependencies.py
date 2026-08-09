@@ -10,6 +10,8 @@ from fastapi import Request
 
 from app.domain.feature_encoder import FeatureEncoder
 from app.domain.feature_validator import FeatureValidator
+from app.domain.symptom_evidence_encoder import SymptomEvidenceEncoder
+from app.services.evidence_concept_extractor import EvidenceConceptExtractor
 from app.domain.ports import (
     AssessmentExplainerPort,
     ConfidenceEstimatorPort,
@@ -66,6 +68,22 @@ def get_feature_encoder(request: Request) -> FeatureEncoder:
     if encoder is None:
         raise AssessmentError("مشفِّر الميزات غير مُهيّأ.")
     return encoder
+
+
+def get_symptom_evidence_encoder(request: Request) -> SymptomEvidenceEncoder:
+    """إرجاع مُرمِّز ربط الأعراض بأدلة DDXPlus المُهيّأ عند بدء التشغيل."""
+    encoder = getattr(request.app.state, "symptom_evidence_encoder", None)
+    if encoder is None:
+        raise AssessmentError("مُرمِّز ربط الأعراض بالأدلة غير مُهيّأ.")
+    return encoder
+
+
+def get_evidence_concept_extractor(request: Request) -> EvidenceConceptExtractor:
+    """إرجاع مُستخلِص مفاهيم الأدلة (LLM بعقد enum مغلق) المُهيّأ عند بدء التشغيل."""
+    extractor = getattr(request.app.state, "evidence_concept_extractor", None)
+    if extractor is None:
+        raise AssessmentError("مُستخلِص مفاهيم الأدلة غير مُهيّأ.")
+    return extractor
 
 
 def get_disease_predictor(request: Request) -> DiseasePredictorPort:
