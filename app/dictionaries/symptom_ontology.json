@@ -1,0 +1,771 @@
+{
+  "ontology_version": "healix-ontology-v1.0.0",
+  "description": "Runtime symptom-coding lexicon. Maps HEALIX_SYMPTOM ids to Arabic synonyms for free-text interview matching. 'en'/'fr' are DDXPlus reference labels (do not edit); fill 'ar' under clinical review.",
+  "symptom_count": 98,
+  "symptoms": {
+    "HEALIX_SYMPTOM_0001": {
+      "ddxplus_code": "E_91",
+      "en": "Do you have a fever (either felt or measured with a thermometer)?",
+      "fr": "Avez-vous objectivé ou ressenti de la fièvre?",
+      "ar": [
+        "حمى",
+        "حرارة",
+        "سخونة",
+        "سخونية",
+        "ارتفاع حرارة",
+        "حراره",
+        "سخونه"
+      ]
+    },
+    "HEALIX_SYMPTOM_0002": {
+      "ddxplus_code": "E_53",
+      "en": "Do you have pain somewhere, related to your reason for consulting?",
+      "fr": "Avez-vous de la douleur à quelque part en lien avec votre raison de consultation?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0003": {
+      "ddxplus_code": "E_159",
+      "en": "Did you lose consciousness?",
+      "fr": "Avez-vous perdu conscience?",
+      "ar": [
+        "فقدان وعي",
+        "غيبوبة",
+        "إغماء",
+        "فقدت الوعي",
+        "أغمي علي",
+        "غاب عن الوعي"
+      ]
+    },
+    "HEALIX_SYMPTOM_0004": {
+      "ddxplus_code": "E_129",
+      "en": "Do you have any lesions, redness or problems on your skin that you believe are related to the condition you are consulting for?",
+      "fr": "Avez vous des lésions, rougeurs ou problèmes au niveau de votre peau que vous croyez être reliés à la condition pour laquelle vous consultez?",
+      "ar": [
+        "طفح جلدي",
+        "طفح",
+        "بقع جلدية",
+        "احمرار الجلد",
+        "حبوب بالجلد",
+        "التهاب جلد"
+      ]
+    },
+    "HEALIX_SYMPTOM_0005": {
+      "ddxplus_code": "E_154",
+      "en": "Is your skin much paler than usual?",
+      "fr": "Avez-vous un teint beaucoup plus pâle que d’habitude?",
+      "ar": [
+        "شحوب",
+        "شحوب الجلد",
+        "بشرة شاحبة",
+        "لون شاحب"
+      ]
+    },
+    "HEALIX_SYMPTOM_0006": {
+      "ddxplus_code": "E_155",
+      "en": "Do you feel your heart is beating fast (racing), irregularly (missing a beat) or do you feel palpitations?",
+      "fr": "Avez-vous l’impression que votre coeur bat vite, de façon irrégulière ou ressentez-vous des palpitations?",
+      "ar": [
+        "خفقان",
+        "خفقان القلب",
+        "تسارع القلب",
+        "دقات قلب سريعة",
+        "قلبي بيدق بسرعة",
+        "نبض سريع"
+      ]
+    },
+    "HEALIX_SYMPTOM_0007": {
+      "ddxplus_code": "E_210",
+      "en": "Have you recently thrown up blood or something resembling coffee beans?",
+      "fr": "Avez-vous récemment remarqué du sang dans vos vomissements ou quelque chose qui ressemble à des grains de café?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0008": {
+      "ddxplus_code": "E_140",
+      "en": "Have you recently had stools that were black (like coal)?",
+      "fr": "Avez-vous eu récemment des selles noires comme du charbon?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0009": {
+      "ddxplus_code": "E_51",
+      "en": "Have you had diarrhea or an increase in stool frequency?",
+      "fr": "Avez-vous eu des diarrhées ou une augmentation de la fréquence de vos selles?",
+      "ar": [
+        "إسهال",
+        "اسهال",
+        "إسهال متكرر",
+        "بطني ماشي"
+      ]
+    },
+    "HEALIX_SYMPTOM_0010": {
+      "ddxplus_code": "E_75",
+      "en": "Do you feel like you are (or were) choking or suffocating?",
+      "fr": "Avez-vous l’impression que vous étouffez ou avez-vous eu l’impression que vous étouffiez?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0011": {
+      "ddxplus_code": "E_89",
+      "en": "Do you constantly feel fatigued or do you have non-restful sleep?",
+      "fr": "Ressentez-vous une fatigue constante ou avez-vous un sommeil non réparateur?",
+      "ar": [
+        "تعب",
+        "إرهاق",
+        "إعياء",
+        "تعبان",
+        "مرهق"
+      ]
+    },
+    "HEALIX_SYMPTOM_0012": {
+      "ddxplus_code": "E_114",
+      "en": "Are you more irritable or has your mood been very unstable recently?",
+      "fr": "Êtes-vous plus irritable dernièrement ou avez-vous une humeur très changeante?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0013": {
+      "ddxplus_code": "E_82",
+      "en": "Do you feel lightheaded and dizzy or do you feel like you are about to faint?",
+      "fr": "Vous sentez-vous faible et étourdi ou avez vous l’impression que vous allez perdre conscience?",
+      "ar": [
+        "دوخة شديدة",
+        "إغماء وشيك",
+        "رح يغمى علي",
+        "حاسس رح أوقع"
+      ]
+    },
+    "HEALIX_SYMPTOM_0014": {
+      "ddxplus_code": "E_148",
+      "en": "Are you feeling nauseous or do you feel like vomiting?",
+      "fr": "Avez-vous des nausées ou envie de vomir?",
+      "ar": [
+        "غثيان",
+        "غثيان ورغبة بالتقيؤ",
+        "نفسي تلوّع",
+        "حاسس بدي أستفرغ"
+      ]
+    },
+    "HEALIX_SYMPTOM_0015": {
+      "ddxplus_code": "E_94",
+      "en": "Have you had chills or shivers?",
+      "fr": "Avez-vous eu des frissons?",
+      "ar": [
+        "قشعريرة",
+        "رعشة",
+        "رجفة",
+        "برد ورعشة",
+        "قشعريره"
+      ]
+    },
+    "HEALIX_SYMPTOM_0016": {
+      "ddxplus_code": "E_220",
+      "en": "Do you have pain that is increased when you breathe in deeply?",
+      "fr": "Avez-vous une douleur qui est pire à l’inspiration profonde?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0017": {
+      "ddxplus_code": "E_161",
+      "en": "Have you recently had a loss of appetite or do you get full more quickly then usually?",
+      "fr": "Avez-vous une perte d’appétit ou êtes-vous rassasié rapidement?",
+      "ar": [
+        "فقدان الشهية",
+        "ما في شهية",
+        "بشبع بسرعة",
+        "فقدت شهيتي"
+      ]
+    },
+    "HEALIX_SYMPTOM_0018": {
+      "ddxplus_code": "E_179",
+      "en": "Have you noticed light red blood or blood clots in your stool?",
+      "fr": "Avez-vous noté du sang rouge clair ou des caillots de sang dans vos selles?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0019": {
+      "ddxplus_code": "E_162",
+      "en": "Have you had an involuntary weight loss over the last 3 months?",
+      "fr": "Avez-vous eu une perte de poids involontaire dans les 3 derniers mois?",
+      "ar": [
+        "نقص وزن",
+        "خسارة وزن",
+        "نحول",
+        "نقص وزن غير مقصود"
+      ]
+    },
+    "HEALIX_SYMPTOM_0020": {
+      "ddxplus_code": "E_173",
+      "en": "Do you have a burning sensation that starts in your stomach then goes up into your throat, and can be associated with a bitter taste in your mouth?",
+      "fr": "Avez-vous une sensation de brûlure partant du creux de l’estomac et remontant vers la bouche avec même parfois un goût amer associé?",
+      "ar": [
+        "حرقة معدة",
+        "حموضة",
+        "حرقان بالمعدة",
+        "ارتجاع حمضي"
+      ]
+    },
+    "HEALIX_SYMPTOM_0021": {
+      "ddxplus_code": "E_33",
+      "en": "Do you have pain that improves when you lean forward?",
+      "fr": "Avez-vous une douleur qui s’améliore lorsque vous penchez votre corps vers l’avant?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0022": {
+      "ddxplus_code": "E_218",
+      "en": "Do you have symptoms that are increased with physical exertion but alleviated with rest?",
+      "fr": "Avez-vous des symptômes qui sont pires lors de l’effort physique et soulagés par le repos?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0023": {
+      "ddxplus_code": "E_93",
+      "en": "Do you have numbness, loss of sensation or tingling in the feet?",
+      "fr": "Avez-vous des engourdissements, une perte de sensibilité ou des fourmillements dans les pieds?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0024": {
+      "ddxplus_code": "E_66",
+      "en": "Are you experiencing shortness of breath or difficulty breathing in a significant way?",
+      "fr": "Vous sentez-vous essoufflé ou avez vous de la difficulté à respirer de façon importante?",
+      "ar": [
+        "ضيق تنفس",
+        "صعوبة تنفس",
+        "ضيق نفس",
+        "ما بقدر أتنفس",
+        "نهجان",
+        "ضيق بالنفس"
+      ]
+    },
+    "HEALIX_SYMPTOM_0025": {
+      "ddxplus_code": "E_163",
+      "en": "Have you had any vaginal discharge?",
+      "fr": "Avez-vous des pertes vaginales?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0026": {
+      "ddxplus_code": "E_30",
+      "en": "Do you feel your abdomen is bloated or distended (swollen due to pressure from inside)?",
+      "fr": "Ressentez-vous un ballonnement abdominal ou un gonflement de votre ventre?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0027": {
+      "ddxplus_code": "E_127",
+      "en": "Do you feel that your eyes produce excessive tears?",
+      "fr": "Avez-vous l’impression que votre oeil produit des larmes de façon excessive?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0028": {
+      "ddxplus_code": "E_181",
+      "en": "Do you have nasal congestion or a clear runny nose?",
+      "fr": "Avez-vous de la congestion nasale ou le nez qui coule clair?",
+      "ar": [
+        "احتقان أنف",
+        "رشح",
+        "سيلان أنف",
+        "زكام",
+        "أنف مسدود",
+        "رشح بالأنف"
+      ]
+    },
+    "HEALIX_SYMPTOM_0029": {
+      "ddxplus_code": "E_88",
+      "en": "Do you feel so tired that you are unable to do your usual activities or are you stuck in your bed all day long?",
+      "fr": "Vous sentez-vous incapable de faire vos activités ou êtes-vous cloué au lit toute la journée?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0030": {
+      "ddxplus_code": "E_43",
+      "en": "Have you lost consciousness associated with violent and sustained muscle contractions or had an absence episode?",
+      "fr": "Avez-vous eu une épisode de perte de conscience avec des contractions violentes et soutenues d’un ou de plusieurs muscles de votre corps ou une période d'absence?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0031": {
+      "ddxplus_code": "E_156",
+      "en": "Have you had weakness or paralysis on one side of the face, which may still be present or completely resolved?",
+      "fr": "Avez-vous une faiblesse ou une paralysie d’un côté du visage, qui peut être encore présente ou complètement résolue?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0032": {
+      "ddxplus_code": "E_144",
+      "en": "Do you have diffuse (widespread) muscle pain?",
+      "fr": "Avez-vous des douleurs musculaires diffuses?",
+      "ar": [
+        "ألم عضلي",
+        "أوجاع عضلات",
+        "وجع بالعضلات",
+        "آلام جسم",
+        "وجع بالجسم"
+      ]
+    },
+    "HEALIX_SYMPTOM_0033": {
+      "ddxplus_code": "E_216",
+      "en": "Do you have pain that is increased with movement?",
+      "fr": "Avez-vous une douleur qui est pire lors des mouvements?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0034": {
+      "ddxplus_code": "E_201",
+      "en": "Do you have a cough?",
+      "fr": "Avez-vous de la toux?",
+      "ar": [
+        "سعال",
+        "كحة",
+        "سعله",
+        "كحه",
+        "بسعل"
+      ]
+    },
+    "HEALIX_SYMPTOM_0035": {
+      "ddxplus_code": "E_217",
+      "en": "Are your symptoms worse when lying down and alleviated while sitting up?",
+      "fr": "Vos symptômes sont-ils pire en position couchée et améliorés en position assise?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0036": {
+      "ddxplus_code": "E_215",
+      "en": "Do you have symptoms that get worse after eating?",
+      "fr": "Avez-vous des symptômes qui sont pires après les repas?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0037": {
+      "ddxplus_code": "E_64",
+      "en": "Do you feel out of breath with minimal physical effort?",
+      "fr": "Vous sentez-vous facilement essoufflé à l’effort?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0038": {
+      "ddxplus_code": "E_96",
+      "en": "Have you gained weight recently?",
+      "fr": "Avez-vous pris du poids récemment?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0039": {
+      "ddxplus_code": "E_50",
+      "en": "Have you had significantly increased sweating?",
+      "fr": "Avez-vous eu des sueurs importantes?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0040": {
+      "ddxplus_code": "E_97",
+      "en": "Do you have a sore throat?",
+      "fr": "Avez-vous mal à la gorge?",
+      "ar": [
+        "التهاب حلق",
+        "ألم حلق",
+        "وجع بلعوم",
+        "حلقي بيوجعني",
+        "التهاب بالحلق"
+      ]
+    },
+    "HEALIX_SYMPTOM_0041": {
+      "ddxplus_code": "E_9",
+      "en": "Do you have swollen or painful lymph nodes?",
+      "fr": "Avez-vous des ganglions enflés ou douloureux?",
+      "ar": [
+        "تورم غدد",
+        "غدد منتفخة",
+        "تضخم العقد اللمفاوية",
+        "غدد متورمة"
+      ]
+    },
+    "HEALIX_SYMPTOM_0042": {
+      "ddxplus_code": "E_76",
+      "en": "Do you feel slightly dizzy or lightheaded?",
+      "fr": "Avez-vous l’impression de vous sentir légèrement étourdi ou d’avoir une impression de déséquilibre léger?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0043": {
+      "ddxplus_code": "E_65",
+      "en": "Do you have difficulty swallowing, or have a feeling of discomfort/blockage when swallowing?",
+      "fr": "Avez-vous des de la difficulté à avaler ou une sensation de gêne ou de blocage lors de la déglutition?",
+      "ar": [
+        "صعوبة بلع",
+        "ألم عند البلع",
+        "ما بقدر أبلع",
+        "صعوبة بالبلع"
+      ]
+    },
+    "HEALIX_SYMPTOM_0044": {
+      "ddxplus_code": "E_74",
+      "en": "Have you noticed a diffuse (widespread) redness in one or both eyes?",
+      "fr": "Avez-vous remarqué une rougeur diffuse à un oeil ou aux 2 yeux?",
+      "ar": [
+        "احمرار العين",
+        "عيون حمرا",
+        "احمرار بالعين",
+        "عيوني حمرا"
+      ]
+    },
+    "HEALIX_SYMPTOM_0045": {
+      "ddxplus_code": "E_205",
+      "en": "Do you suddenly have difficulty or an inability to open your mouth or have jaw pain when opening it?",
+      "fr": "Avez-vous soudainement de la difficulté ou une incapacité à ouvrir la bouche ou même de la douleur au niveau de la mâchoire lors de l’ouverture de celle-ci?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0046": {
+      "ddxplus_code": "E_63",
+      "en": "Do you have difficulty articulating words/speaking?",
+      "fr": "Avez-vous de la difficulté à articuler les mots?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0047": {
+      "ddxplus_code": "E_128",
+      "en": "Have you ever felt like you were suffocating for a very short time associated with inability to breathe or speak?",
+      "fr": "Avez-vous eu l’impression que vous étouffiez pendant un court instant et que vous étiez incapable de respirer ou parler?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0048": {
+      "ddxplus_code": "E_190",
+      "en": "Have you noticed that you produce more saliva than usual?",
+      "fr": "Avez-vous noté que vous produisez plus de salive que d’habitude?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0049": {
+      "ddxplus_code": "E_39",
+      "en": "Have you felt confused or disorientated lately?",
+      "fr": "Vous sentez-vous confus ou mélangé?",
+      "ar": [
+        "تشوش ذهني",
+        "تشوش",
+        "ارتباك",
+        "عدم تركيز",
+        "تشوش بالتفكير"
+      ]
+    },
+    "HEALIX_SYMPTOM_0050": {
+      "ddxplus_code": "E_212",
+      "en": "Have you noticed that the tone of your voice has become deeper, softer or hoarse?",
+      "fr": "Avez-vous remarqué que votre ton de voix a changé, soit diminué, s’est éteint ou est devenu plus grave?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0051": {
+      "ddxplus_code": "E_206",
+      "en": "Do you have painful mouth ulcers or sores?",
+      "fr": "Avez-vous des ulcères ou des lésions ulcérées et douloureuses dans la bouche?",
+      "ar": [
+        "تقرحات فم",
+        "قرحة بالفم",
+        "حبوب بالفم",
+        "تقرحات بالفم"
+      ]
+    },
+    "HEALIX_SYMPTOM_0052": {
+      "ddxplus_code": "E_52",
+      "en": "Do you have the perception of seeing two images of a single object seen overlapping or adjacent to each other (double vision)?",
+      "fr": "Avez-vous l’impression de voir double ou de voir simultanément 2 images semblables?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0053": {
+      "ddxplus_code": "E_203",
+      "en": "Do you have intense coughing fits?",
+      "fr": "Avez-vous des quintes de toux intenses et dérangeantes?",
+      "ar": [
+        "نوبات سعال",
+        "نوبات كحة شديدة",
+        "سعال متواصل"
+      ]
+    },
+    "HEALIX_SYMPTOM_0054": {
+      "ddxplus_code": "E_38",
+      "en": "Do you have pain or weakness in your jaw?",
+      "fr": "Avez-vous des douleurs ou une faiblesse au niveau de la mâchoire?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0055": {
+      "ddxplus_code": "E_172",
+      "en": "Do you have a hard time opening/raising one or both eyelids?",
+      "fr": "Avez-vous de la misère à ouvrir/relever une ou les deux paupières?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0056": {
+      "ddxplus_code": "E_84",
+      "en": "Do you feel weakness in both arms and/or both legs?",
+      "fr": "Avez-vous présentement une faiblesse des 2 bras et/ou des 2 jambes?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0057": {
+      "ddxplus_code": "E_90",
+      "en": "Do your symptoms of muscle weakness increase with fatigue and/or stress?",
+      "fr": "Est-ce que vos symptômes de faiblesse musculaire augmente avec la fatigue et/ou le stress?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0058": {
+      "ddxplus_code": "E_211",
+      "en": "Have you vomited several times or have you made several efforts to vomit?",
+      "fr": "Avez-vous eu plusieurs vomissements ou fait plusieurs efforts pour vomir?",
+      "ar": [
+        "تقيؤ",
+        "استفراغ",
+        "ترجيع",
+        "تقيؤ متكرر",
+        "عم بستفرغ"
+      ]
+    },
+    "HEALIX_SYMPTOM_0059": {
+      "ddxplus_code": "E_166",
+      "en": "Did you vomit after coughing?",
+      "fr": "Avez-vous eu des vomissements après des quintes de toux?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0060": {
+      "ddxplus_code": "E_112",
+      "en": "Do you wheeze while inhaling or is your breathing noisy after coughing spells?",
+      "fr": "Avez-vous une inspiration sifflante après vos quintes de toux?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0061": {
+      "ddxplus_code": "E_178",
+      "en": "Have you noticed any unusual bleeding or bruising related to your consultation today?",
+      "fr": "Avez-vous remarqué des saignement ou des bleus inhabituels en lien avec votre consultation aujourd’hui?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0062": {
+      "ddxplus_code": "E_151",
+      "en": "Do you have swelling in one or more areas of your body?",
+      "fr": "Avez-vous de l’enflure à un ou plusieurs endroits sur votre corps?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0063": {
+      "ddxplus_code": "E_45",
+      "en": "Have you been coughing up blood?",
+      "fr": "Avez-vous visualisé du sang dans vos crachats?",
+      "ar": [
+        "نفث دم",
+        "سعال مدمى",
+        "دم مع الكحة",
+        "بصق دم"
+      ]
+    },
+    "HEALIX_SYMPTOM_0064": {
+      "ddxplus_code": "E_194",
+      "en": "Have you noticed a high pitched sound when breathing in?",
+      "fr": "Avez-vous noté un bruit respiratoire aigu surtout à l’inspiration?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0065": {
+      "ddxplus_code": "E_83",
+      "en": "Have you noticed weakness in your facial muscles and/or eyes?",
+      "fr": "Avez-vous noté une faiblesse au niveau des muscles du visage et/ou des yeux?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0066": {
+      "ddxplus_code": "E_157",
+      "en": "Have you recently had numbness, loss of sensation or tingling, in both arms and legs and around your mouth?",
+      "fr": "Avez-vous présentement ou avez-vous eu récemment des engourdissements, une perte de sensibilité ou des fourmillements, dans les mains, les pieds et autour de la bouche?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0067": {
+      "ddxplus_code": "E_176",
+      "en": "Did you previously, or do you currently, have any weakness/paralysis in one or more of your limbs or in your face?",
+      "fr": "Avez-vous noté une faiblesse ou paralysie d’un ou plusieurs de vos membres ou au niveau du visage, encore présentes ou résolues?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0068": {
+      "ddxplus_code": "E_42",
+      "en": "Have you been in contact with or ate something that you have an allergy to?",
+      "fr": "Avez-vous été en contact ou mangé une chose à laquelle vous avez une allergie?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0069": {
+      "ddxplus_code": "E_214",
+      "en": "Have you noticed a wheezing sound when you exhale?",
+      "fr": "Avez-vous noté un un son aigu lorsque vous sortez l’air de vos poumons?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0070": {
+      "ddxplus_code": "E_150",
+      "en": "Have you been able to pass stools or gas since your symptoms increased?",
+      "fr": "Passez-vous des selles ou des gaz depuis que vos symptômes sont pires?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0071": {
+      "ddxplus_code": "E_32",
+      "en": "Do you have a decrease in appetite?",
+      "fr": "Avez-vous une diminution de l’appétit ou des boires?",
+      "ar": [
+        "قلة الشهية",
+        "ضعف الشهية",
+        "شهية قليلة"
+      ]
+    },
+    "HEALIX_SYMPTOM_0072": {
+      "ddxplus_code": "E_221",
+      "en": "Are the symptoms or pain increased with coughing, with an effort like lifting a weight or from forcing a bowel movement?",
+      "fr": "Les symptômes ou la douleur sont-ils augmentés avec la toux, un effort comme lever un poids ou quand vous forcez pour aller à la selle?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0073": {
+      "ddxplus_code": "E_202",
+      "en": "Does the person have a whooping cough?",
+      "fr": "Avez-vous une toux aboyante?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0074": {
+      "ddxplus_code": "E_219",
+      "en": "Are your symptoms more prominent at night?",
+      "fr": "Ressentez vous davantage vos symptômes la nuit?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0075": {
+      "ddxplus_code": "E_170",
+      "en": "Do you have severe itching in one or both eyes?",
+      "fr": "Avez-vous des démangeaisons importantes au niveau d’un oeil ou des 2 yeux simultanément?",
+      "ar": [
+        "حكة بالعين",
+        "عيون بتحك",
+        "حكة شديدة بالعين"
+      ]
+    },
+    "HEALIX_SYMPTOM_0076": {
+      "ddxplus_code": "E_77",
+      "en": "Do you have a cough that produces colored or more abundant sputum than usual?",
+      "fr": "Avez-vous une toux produisant des crachats colorés ou plus abondants qu’habituellement?",
+      "ar": [
+        "بلغم",
+        "سعال مع بلغم",
+        "كحة مع بلغم",
+        "بلغم ملون"
+      ]
+    },
+    "HEALIX_SYMPTOM_0077": {
+      "ddxplus_code": "E_13",
+      "en": "Do you find that your symptoms have worsened over the last 2 weeks and that progressively less effort is required to cause the symptoms?",
+      "fr": "Trouvez-vous que vos symptômes sont pires depuis environ 2 semaines et que de moins en moins d’effort provoquent les symptômes?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0078": {
+      "ddxplus_code": "E_14",
+      "en": "Do you have chest pain even at rest?",
+      "fr": "Avez-vous des douleurs au thorax même au repos?",
+      "ar": [
+        "ألم صدر",
+        "وجع بالصدر",
+        "ألم بالصدر",
+        "ألم صدر وقت الراحة"
+      ]
+    },
+    "HEALIX_SYMPTOM_0079": {
+      "ddxplus_code": "E_169",
+      "en": "Is your nose or the back of your throat itchy?",
+      "fr": "Avez-vous le nez et/ou le palais qui pique?",
+      "ar": [
+        "حكة بالأنف",
+        "حكة بالحلق",
+        "أنفي بيحك"
+      ]
+    },
+    "HEALIX_SYMPTOM_0080": {
+      "ddxplus_code": "E_177",
+      "en": "Do you currently, or did you ever, have numbness, loss of sensitivity or tingling anywhere on your body?",
+      "fr": "Avez-vous présentement ou avez-vous eu récemment des engourdissements, une perte de sensibilité ou des fourmillements, n’importe où sur votre le corps?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0081": {
+      "ddxplus_code": "E_175",
+      "en": "Have you noticed any new fatigue, generalized and vague discomfort, diffuse (widespread) muscle aches or a change in your general well-being related to your consultation today?",
+      "fr": "Avez-vous de la fatigue, un malaise généralisé, un inconfort vague, des douleurs musculaires diffuses ou une atteinte de votre état général en lien avec votre consultation aujourd’hui?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0082": {
+      "ddxplus_code": "E_174",
+      "en": "Have you been unintentionally losing weight or have you lost your appetite?",
+      "fr": "Avez-vous remarqué une perte de poids involontaire ou une perte d’appétit qui semble en lien avec votre consultation aujourd’hui?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0083": {
+      "ddxplus_code": "E_145",
+      "en": "Do you have very abundant or very long menstruation periods?",
+      "fr": "Avez-vous des menstruations très abondantes ou très longues?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0084": {
+      "ddxplus_code": "E_92",
+      "en": "Did your cheeks suddenly turn red?",
+      "fr": "Est-ce que vos joues sont devenues rouges soudainement?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0085": {
+      "ddxplus_code": "E_192",
+      "en": "Do you feel that muscle spasms or soreness in your neck are keeping you from turning your head to one side?",
+      "fr": "Avez-vous l’impression qu’il y a des muscles spasmés ou endoloris, dans votre cou, qui vous empêchent de tourner votre tête d’un bord ou de l’autre?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0086": {
+      "ddxplus_code": "E_188",
+      "en": "Do you have pale stools and dark urine?",
+      "fr": "Avez-vous les selles pâles et les urines foncées?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0087": {
+      "ddxplus_code": "E_164",
+      "en": "Do you feel your heart is beating very irregularly or in a disorganized pattern?",
+      "fr": "Sentez-vous que votre cœur bat de façon très irrégulière ou désorganisée?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0088": {
+      "ddxplus_code": "E_193",
+      "en": "Do you have annoying muscle spasms in your face, neck or any other part of your body?",
+      "fr": "Avez-vous des spasmes musculaires très incommodants au niveau du visage, du cou ou de tout autre endroit de votre corps?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0089": {
+      "ddxplus_code": "E_168",
+      "en": "Do you have trouble keeping your tongue in your mouth?",
+      "fr": "Avez-vous de la difficulté à garder votre langue dans votre bouche?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0090": {
+      "ddxplus_code": "E_180",
+      "en": "Are you unable to control the direction of your eyes?",
+      "fr": "Êtes-vous incapable de contrôler la direction de votre regard?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0091": {
+      "ddxplus_code": "E_67",
+      "en": "Do you have bouts of choking or shortness of breath that wake you up at night?",
+      "fr": "Avez-vous des crises de suffocation qui vous réveille la nuit?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0092": {
+      "ddxplus_code": "E_171",
+      "en": "Do you feel like you are detached from your own body or your surroundings?",
+      "fr": "Avez-vous l’impression que vous êtes détaché de votre propre corps ou de l’environnement qui vous entoure?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0093": {
+      "ddxplus_code": "E_111",
+      "en": "Do you feel like you are dying or were you afraid that you were about do die?",
+      "fr": "Avez-vous l’impression que vous pourriez mourir ou que vous alliez mourir?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0094": {
+      "ddxplus_code": "E_182",
+      "en": "Do you have greenish or yellowish nasal discharge?",
+      "fr": "Avez-vous un écoulement nasal coloré?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0095": {
+      "ddxplus_code": "E_103",
+      "en": "Have you lost your sense of smell?",
+      "fr": "Avez-vous une perte d’odorat accompagnant vos symptômes?",
+      "ar": [
+        "فقدان الشم",
+        "ما عم بشم",
+        "فقدان حاسة الشم",
+        "بطّلت أشم"
+      ]
+    },
+    "HEALIX_SYMPTOM_0096": {
+      "ddxplus_code": "E_23",
+      "en": "Do you ever temporarily stop breathing while you’re asleep?",
+      "fr": "Faites-vous des pauses respiratoires durant votre sommeil?",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0097": {
+      "ddxplus_code": null,
+      "en": "",
+      "fr": "",
+      "ar": []
+    },
+    "HEALIX_SYMPTOM_0098": {
+      "ddxplus_code": null,
+      "en": "",
+      "fr": "",
+      "ar": []
+    }
+  }
+}
