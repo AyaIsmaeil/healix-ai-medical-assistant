@@ -1,15 +1,15 @@
 """
 اختبارات وحدة لوكيل المقابلة السريرية (ConversationService).
 
-بعد الانتقال لمعمارية LLM-first لم يعد هناك مستخرج أعراض مستقل: الأعراض
-والسجل المنظَّم يأتيان من نفس ردّ الـLLM الذي يحمل قرار الدور. لذلك تُحقن
-هنا ردود JSON مكتوبة مسبقاً (ScriptedProvider) تحمل الاثنين معاً — فلا حاجة
-لنموذج حقيقي ولا لمنفذ استخراج.
+الأعراض تُستخرَج بمسار مستقلّ (SymptomExtractor) عن سجل الدور وقراره — لذلك
+تُحقَن هنا عبر ScriptedSymptomExtractor موازٍ لـ ScriptedProvider، بدل حقل
+داخل ردّ الـLLM كما كان قبل الانتقال لهذه المعمارية.
 """
 
 import json
 from typing import List, Optional
 
+from app.domain.conversation import Symptom
 from app.domain.ports import Completion
 from app.infrastructure.session_store import InMemorySessionStore
 from app.prompts.interview_builder import InterviewPromptBuilder
@@ -21,13 +21,11 @@ def turn(
     finished: bool = False,
     next_slot: Optional[str] = None,
     question: Optional[str] = None,
-    symptoms: Optional[List[dict]] = None,
     **record,
 ) -> dict:
-    """يبني ردّ LLM مطابقاً للعقد الموحّد (اختصار لتقليل ضجيج الاختبارات)."""
+    """يبني ردّ LLM مطابقاً لعقد دور المقابلة (سجل + قرار، بلا أعراض)."""
     payload = {
         "chief_complaint": None,
-        "symptoms": symptoms or [],
         "severity": None,
         "duration": None,
         "body_location": None,
@@ -63,21 +61,50 @@ class ScriptedProvider:
         return Completion(json.dumps(resp, ensure_ascii=False), model="scripted")
 
 
-def _service(provider, max_questions=8):
+class ScriptedSymptomExtractor:
+    """بديل اختباري لـ CompositeSymptomExtractor — أعراض محدّدة مسبقاً بالترتيب.
+
+    كل استدعاء لـ ``extract`` يستهلك الدفعة التالية من الردود؛ تجاوز عدد
+    الردود المُعطاة يُرجع قائمة فارغة بدل رفع خطأ (أدوار لا تهتمّ باستخراج
+    جديد لا تحتاج تزويده صراحةً).
+    """
+
+    def __init__(self, responses: Optional[List[List[dict]]] = None):
+        self._responses = responses or []
+        self._i = 0
+
+    def extract(self, raw_messages, known_symptoms=None) -> List[Symptom]:
+        if self._i >= len(self._responses):
+            return []
+        batch = self._responses[self._i]
+        self._i += 1
+        return [
+            Symptom(
+                text=s["text"],
+                negated=s.get("negated", False),
+                confidence=s.get("confidence", 0.9),
+            )
+            for s in batch
+        ]
+
+
+def _service(provider, max_questions=8, symptom_responses=None):
     return ConversationService(
         provider=provider,
         prompt_builder=InterviewPromptBuilder(),
         store=InMemorySessionStore(),
         max_questions=max_questions,
+        symptom_extractor=ScriptedSymptomExtractor(symptom_responses),
     )
 
 
 def test_first_turn_extracts_stores_and_asks():
     provider = ScriptedProvider([
-        turn(next_slot="onset", question="منذ متى؟",
-             symptoms=[sym("صداع"), sym("حرارة", confidence=0.8)]),
+        turn(next_slot="onset", question="منذ متى؟"),
     ])
-    svc = _service(provider)
+    svc = _service(provider, symptom_responses=[
+        [sym("صداع"), sym("حرارة", confidence=0.8)],
+    ])
 
     state, decision = svc.handle_message("أعاني من صداع وحرارة", session_id=None)
 
@@ -92,11 +119,13 @@ def test_first_turn_extracts_stores_and_asks():
 
 def test_second_turn_keeps_all_raw_messages_and_clears_pending():
     provider = ScriptedProvider([
-        turn(next_slot="onset", question="منذ متى؟", symptoms=[sym("صداع")]),
-        # لا أعراض جديدة في ردّ الدور الثاني.
-        turn(next_slot="severity", question="ما الشدة؟", symptoms=[sym("صداع")]),
+        turn(next_slot="onset", question="منذ متى؟"),
+        turn(next_slot="severity", question="ما الشدة؟"),
     ])
-    svc = _service(provider)
+    svc = _service(provider, symptom_responses=[
+        [sym("صداع")],
+        [],  # لا أعراض جديدة في الدور الثاني
+    ])
 
     state, _ = svc.handle_message("عندي صداع", session_id=None)
     sid = state.session_id
@@ -113,8 +142,8 @@ def test_second_turn_keeps_all_raw_messages_and_clears_pending():
 
 
 def test_finished_marks_state_completed():
-    provider = ScriptedProvider([turn(finished=True, symptoms=[sym("صداع")])])
-    svc = _service(provider)
+    provider = ScriptedProvider([turn(finished=True)])
+    svc = _service(provider, symptom_responses=[[sym("صداع")]])
 
     state, decision = svc.handle_message("عندي صداع", session_id=None)
 
@@ -125,10 +154,13 @@ def test_finished_marks_state_completed():
 
 def test_symptoms_are_deduplicated_across_turns():
     provider = ScriptedProvider([
-        turn(next_slot="onset", question="منذ متى؟", symptoms=[sym("صداع")]),
-        turn(next_slot="severity", question="ما الشدة؟", symptoms=[sym("صداع")]),
+        turn(next_slot="onset", question="منذ متى؟"),
+        turn(next_slot="severity", question="ما الشدة؟"),
     ])
-    svc = _service(provider)
+    svc = _service(provider, symptom_responses=[
+        [sym("صداع")],
+        [sym("صداع")],
+    ])
 
     state, _ = svc.handle_message("صداع", session_id=None)
     state, _ = svc.handle_message("صداع", session_id=state.session_id)
@@ -139,12 +171,15 @@ def test_symptoms_are_deduplicated_across_turns():
 def test_structured_record_accumulates_across_turns():
     """السجل المنظَّم يتراكم ولا يُستبدل بمخرجات دور واحد."""
     provider = ScriptedProvider([
-        turn(next_slot="onset", question="منذ متى؟", symptoms=[sym("صداع")],
+        turn(next_slot="onset", question="منذ متى؟",
              chief_complaint="صداع", medications=["بنادول"]),
-        turn(next_slot="severity", question="ما الشدة؟", symptoms=[sym("صداع")],
+        turn(next_slot="severity", question="ما الشدة؟",
              duration="ثلاثة أيام", allergies=["بنسلين"], missing_fields=["age"]),
     ])
-    svc = _service(provider)
+    svc = _service(provider, symptom_responses=[
+        [sym("صداع")],
+        [sym("صداع")],
+    ])
 
     state, _ = svc.handle_message("عندي صداع وآخذ بنادول", session_id=None)
     state, _ = svc.handle_message("من ثلاثة أيام وعندي حساسية بنسلين",
@@ -166,10 +201,12 @@ def test_max_questions_cap_forces_finish():
     """
     provider = ScriptedProvider([
         turn(next_slot="onset", question="س1؟"),
-        turn(next_slot="severity", question="س2؟", symptoms=[sym("صداع")],
-             medications=["بنادول"]),
+        turn(next_slot="severity", question="س2؟", medications=["بنادول"]),
     ])
-    svc = _service(provider, max_questions=1)
+    svc = _service(provider, max_questions=1, symptom_responses=[
+        [],
+        [sym("صداع")],
+    ])
 
     state, _ = svc.handle_message("مرحبا", session_id=None)  # سؤال واحد
     state, decision = svc.handle_message("عندي صداع وآخذ بنادول",
@@ -184,12 +221,26 @@ def test_max_questions_cap_forces_finish():
 
 def test_dynamic_interview_with_mock_provider_asks_fever_specifics_and_finishes():
     from app.llm.mock_provider import MockLLMProvider
+    from app.prompts.symptom_extraction_builder import SymptomExtractionPromptBuilder
+    from app.services.composite_symptom_extractor import CompositeSymptomExtractor
+    from app.services.llm_symptom_extractor import LLMSymptomExtractor
+    from app.services.rule_based_symptom_extractor import RuleBasedSymptomExtractor
+
+    mappings = [{"concept": "fever", "names": ["حرارة", "حرار", "حمى"]}]
+    symptom_extractor = CompositeSymptomExtractor(
+        llm_extractor=LLMSymptomExtractor(
+            provider=MockLLMProvider(),
+            prompt_builder=SymptomExtractionPromptBuilder(mappings=mappings),
+        ),
+        rule_extractor=RuleBasedSymptomExtractor.from_dict({"mappings": mappings}),
+    )
 
     svc = ConversationService(
         provider=MockLLMProvider(),
         prompt_builder=InterviewPromptBuilder(),
         store=InMemorySessionStore(),
         max_questions=40,
+        symptom_extractor=symptom_extractor,
     )
 
     sid = None
@@ -222,10 +273,10 @@ def test_dynamic_interview_with_mock_provider_asks_fever_specifics_and_finishes(
 def test_repeated_slot_from_llm_ends_interview():
     # يلزم وجود عرَض، وإلا فحارس "لا إنهاء بلا أعراض" له الأولوية (أدناه).
     provider = ScriptedProvider([
-        turn(next_slot="onset", question="منذ متى؟", symptoms=[sym("صداع")]),
-        turn(next_slot="onset", question="منذ متى مجدداً؟", symptoms=[sym("صداع")]),
+        turn(next_slot="onset", question="منذ متى؟"),
+        turn(next_slot="onset", question="منذ متى مجدداً؟"),
     ])
-    svc = _service(provider)
+    svc = _service(provider, symptom_responses=[[sym("صداع")], []])
 
     state, _ = svc.handle_message("عندي صداع", session_id=None)
     state, decision = svc.handle_message("جواب", session_id=state.session_id)
@@ -236,7 +287,7 @@ def test_repeated_slot_from_llm_ends_interview():
 def test_never_finishes_before_any_symptom_is_collected():
     """حارس المجال: الـ LLM قد يُنهي بعد "مرحبا/كيفك" — المحرك يمنع ذلك."""
     provider = ScriptedProvider([turn(finished=True), turn(finished=True)])
-    svc = _service(provider)
+    svc = _service(provider, symptom_responses=[[], []])
 
     state, decision = svc.handle_message("مرحبا", session_id=None)
     assert decision.finished is False
@@ -249,8 +300,8 @@ def test_never_finishes_before_any_symptom_is_collected():
 
 def test_negated_symptoms_are_stored_and_do_not_satisfy_the_guard():
     """عرَض منفيّ ليس عرَضاً مُثبَتاً: الحارس يبقى مُفعَّلاً."""
-    provider = ScriptedProvider([turn(finished=True, symptoms=[sym("سعال", negated=True)])])
-    svc = _service(provider)
+    provider = ScriptedProvider([turn(finished=True)])
+    svc = _service(provider, symptom_responses=[[sym("سعال", negated=True)]])
 
     state, decision = svc.handle_message("ما في سعال", session_id=None)
 
@@ -268,7 +319,7 @@ def test_llm_question_is_not_overridden_before_any_symptom():
     provider = ScriptedProvider([
         turn(next_slot="context:age", question="كم عمرك؟"),  # بلا أعراض
     ])
-    svc = _service(provider)
+    svc = _service(provider, symptom_responses=[[]])
 
     state, decision = svc.handle_message("مرحبا دكتور", session_id=None)
 
@@ -281,7 +332,7 @@ def test_llm_question_is_not_overridden_before_any_symptom():
 def test_guard_still_blocks_finishing_with_no_symptom():
     """الضمان الطبي باقٍ: محاولة الإنهاء بلا عرَض مُثبَت تُرفض."""
     provider = ScriptedProvider([turn(finished=True)])
-    svc = _service(provider)
+    svc = _service(provider, symptom_responses=[[]])
 
     _, decision = svc.handle_message("مرحبا", session_id=None)
 

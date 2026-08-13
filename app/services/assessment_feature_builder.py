@@ -17,6 +17,20 @@ Healix - Assessment Feature Builder (Orchestrator)
 وكلّما ملأ حقلاً سقط ذلك الحقل من ``unresolved``، فلا يُستدعى الـLLM لاستخراجه
 مجدداً — هذا هو إلغاء الازدواج عملياً، لا مجرّد إعادة ترتيب.
 
+أولوية ``has_red_flag`` (C-1، Phase 1.1 — تصعيد فقط، لا تخفيض)
+----------------------------------------------------------------
+القاعدة الذهبية: **القواعد ترفع الخطورة ولا تخفّضها أبداً**.
+
+١. يُشغَّل ``RedFlagEngine`` الحقيقي (L0+L2) **دائماً** عند حقنه — حتى لو
+   وصل ``interview_risk`` من العميل.
+٢. ``known_has_red_flag`` صريحة (من ``AssessmentRequest.interview_risk``):
+   تُدمَج مع نتيجة المحرّك بـOR — ``True`` من أي مصدر يبقى ``True``؛
+   ``emergency_detected=False`` **لا يُعطّل** إعادة الفحص ولا يُخفّض طارئاً
+   اكتشفه المحرّك على ``raw_messages``.
+٣. غياب ``known_has_red_flag`` (``None``): تُستخدم نتيجة المحرّك وحدها.
+٤. غياب ``red_flag_engine`` محقون (توافق خلفي للاختبارات القديمة): إن وُجد
+   ``known_has_red_flag`` تُستخدم كما هي، وإلا ``False``.
+
 ``medical_history`` كان فجوة موثَّقة (فارغ دائماً بمرحلة ٣.١ لعدم وجود مستخرج
 له). وكيل المقابلة صار يستخرج الأدوية والحساسية والأمراض المزمنة والتاريخ
 العائلي، فتُملأ منه مباشرةً هنا — إغلاق للفجوة بلا مستخرج جديد.
@@ -40,6 +54,7 @@ from app.domain.assessment import (
 from app.domain.clinical_record import ClinicalRecord
 from app.domain.conversation import Symptom
 from app.domain.feature_extraction_rules import RuleBasedFeatureExtractor, RuleExtractionResult
+from app.domain.red_flag_engine import RedFlagEngine
 from app.services.llm_feature_extractor import LLMFeatureExtractor
 
 # أوّل عدد صحيح 0..10 داخل نصّ الشدّة ("7/10"، "شدة 8"، "٦" لا تُدعم عمداً).
@@ -49,9 +64,18 @@ _SEVERITY_RE = re.compile(r"\b(10|[0-9])\b")
 class AssessmentFeatureBuilder:
     """ينسّق بناء ``ClinicalFeatureSet`` من رسائل خام وأعراض مقابلة جاهزة."""
 
-    def __init__(self, rule_extractor: RuleBasedFeatureExtractor, llm_extractor: LLMFeatureExtractor):
+    def __init__(
+        self,
+        rule_extractor: RuleBasedFeatureExtractor,
+        llm_extractor: LLMFeatureExtractor,
+        red_flag_engine: Optional[RedFlagEngine] = None,
+    ):
         self._rules = rule_extractor
         self._llm = llm_extractor
+        # اختياري (افتراضي None) — توافقاً خلفياً مع أي بناء قديم للصنف
+        # (اختبارات لا تزال تستدعي المُنشئ بلا هذا المعامِل). محقون بنفس
+        # نمط بقيّة المحرّكات الحتمية (RedFlagEngine واحد في كل الخدمة).
+        self._red_flag_engine = red_flag_engine
 
     def build(
         self,
@@ -59,6 +83,7 @@ class AssessmentFeatureBuilder:
         raw_messages: List[str],
         symptoms: List[Symptom],
         interview_record: Optional[ClinicalRecord] = None,
+        known_has_red_flag: Optional[bool] = None,
     ) -> ClinicalFeatureSet:
         record = interview_record or ClinicalRecord()
 
@@ -81,10 +106,18 @@ class AssessmentFeatureBuilder:
         # 6. إعادة استخدام أعراض المقابلة الجاهزة (لا إعادة استخراج).
         symptom_features, negated_texts = self._build_symptom_features(symptoms, merged)
 
-        # 7. إنتاج ClinicalFeatureSet.
+        # 7. حسم has_red_flag: صريح إن وُجد، وإلا محرّك الأعلام الحمراء
+        #    الحقيقي (C-1، Phase 1.1 — انظر توثيق الملف).
+        resolved_has_red_flag = self._resolve_has_red_flag(raw_messages, symptoms, known_has_red_flag)
+
+        # 8. إنتاج ClinicalFeatureSet.
         return ClinicalFeatureSet(
             session_id=session_id,
-            demographics=Demographics(age=merged.age, gender=merged.gender),
+            demographics=Demographics(
+                age=merged.age,
+                gender=merged.gender,
+                pregnancy_possible=record.pregnancy_possible,
+            ),
             symptoms=symptom_features,
             negated_symptoms=negated_texts,
             temperature_c=merged.temperature,
@@ -95,10 +128,52 @@ class AssessmentFeatureBuilder:
                 family_history=list(record.family_history),
             ),
             lifestyle=Lifestyle(smoking=merged.smoking),
-            derived=self._compute_derived(symptom_features, negated_texts, merged),
+            derived=self._compute_derived(
+                symptom_features, negated_texts, merged, resolved_has_red_flag
+            ),
             validation=ValidationReport(),  # فارغ عمداً — Phase 3.2
             unresolved_fields=self._still_unresolved(merged),
         )
+
+    # ------------------------------------------------------------------
+    # C-1 — حسم has_red_flag (توثيق كامل بأعلى الملف)
+    # ------------------------------------------------------------------
+    def _resolve_has_red_flag(
+        self,
+        raw_messages: List[str],
+        symptoms: List[Symptom],
+        known_has_red_flag: Optional[bool],
+    ) -> bool:
+        engine_emergency = self._evaluate_red_flag_engine(raw_messages, symptoms)
+
+        if known_has_red_flag is not None:
+            # تصعيد فقط: False صريح من المقابلة لا يُلغي طارئاً اكتشفه المحرّك.
+            return bool(known_has_red_flag) or engine_emergency
+
+        return engine_emergency
+
+    def _evaluate_red_flag_engine(
+        self,
+        raw_messages: List[str],
+        symptoms: List[Symptom],
+    ) -> bool:
+        if self._red_flag_engine is None:
+            return False
+        # نفس الطبقتين اللتين تستخدمهما المقابلة حرفياً، مُدمَجتين بنفس
+        # ``merged_with`` (تصعيد فقط) — لا قواعد جديدة، لا محرّك ثانٍ:
+        #   L0 (evaluate_raw_text) — النصّ الخام كما وصل، يلتقط السياق
+        #     الديموغرافي (حمل/رضيع) الذي لا يحمله أي حقل منظَّم.
+        #   L2 (evaluate_record) — نصوص الأعراض المُستخرَجة سلفاً
+        #     (``symptoms``، غير المنفية) كما تصل من المقابلة. مطلوبة هنا
+        #     لأنّ صياغة المريض الحرّة بـ``raw_messages`` قد لا تطابق مصطلحات
+        #     L0 حرفياً (مثال حقيقي: "ألم وضغط في الصدر" لا يطابق أيّ عبارة
+        #     مُعدَّدة بـchest_pain مباشرة) بينما النصّ المُستخرَج المعياري
+        #     ("ألم صدر") يطابقها — تماماً كما يعمل L2 أثناء المقابلة نفسها.
+        positive_texts = [s.text for s in symptoms if not s.negated]
+        assessment = self._red_flag_engine.evaluate_raw_text(raw_messages).merged_with(
+            self._red_flag_engine.evaluate_record(positive_texts, raw_texts=raw_messages)
+        )
+        return assessment.is_emergency
 
     # ------------------------------------------------------------------
     # سجل المقابلة → الحقول الستّة
@@ -109,20 +184,21 @@ class AssessmentFeatureBuilder:
     ) -> RuleExtractionResult:
         """يُسقط قيم المقابلة فوق الناتج القاعدي (المقابلة لها الأولوية).
 
-        الحقول المتقاطعة الوحيدة هي ``duration`` و``severity``؛ الباقي
-        (العمر/الجنس/التدخين/الحرارة) لا يستخرجه وكيل المقابلة حالياً فيبقى
-        للقاعدي ثمّ الـLLM. الشدّة نصّ حرّ بالمقابلة ورقم هنا: تُحوَّل بأول
-        عدد 0..10، ويبقى None عند تعذّر التحويل — لا تخمين.
+        العمر/الجنس/الحمل/الشدّة الرقمية تُؤخذ من ``ClinicalRecord`` إن وُجدت
+        (مُتحقَّقة حتمياً عبر SlotAnswerValidator). الشدّة النصّية تُحوَّل بأول
+        عدد 0..10 فقط عند غياب ``severity_numeric``.
         """
         severity = rule.severity
-        if record.severity:
+        if record.severity_numeric is not None:
+            severity = record.severity_numeric
+        elif record.severity:
             match = _SEVERITY_RE.search(record.severity)
             if match:
                 severity = int(match.group(1))
 
         return RuleExtractionResult(
-            age=rule.age,
-            gender=rule.gender,
+            age=record.age if record.age is not None else rule.age,
+            gender=record.gender if record.gender is not None else rule.gender,
             smoking=rule.smoking,
             temperature=rule.temperature,
             duration_text=record.duration or rule.duration_text,
@@ -216,6 +292,7 @@ class AssessmentFeatureBuilder:
         symptom_features: List[SymptomFeature],
         negated_texts: List[str],
         merged: RuleExtractionResult,
+        has_red_flag: bool,
     ) -> DerivedFeatures:
         positive_count = sum(1 for s in symptom_features if not s.negated)
         negated_count = len(negated_texts)
@@ -225,6 +302,9 @@ class AssessmentFeatureBuilder:
             symptom_count=positive_count,
             positive_negative_ratio=ratio,
             primary_symptom_severity=merged.severity,
-            has_red_flag=False,  # غير مُنفَّذ بمرحلة ٣.١ — يحتاج قاموس قواعد (Phase 3.2)
+            # قيمة محسومة سلفاً بـ_resolve_has_red_flag (صريحة من المقابلة،
+            # أو محرّك الأعلام الحمراء الحقيقي على raw_messages، أو False
+            # كتدهور آمن أخير) — لا حساب هنا، لا اختلاق.
+            has_red_flag=has_red_flag,
             interview_completeness_ratio=None,  # يحتاج asked_slots/turn_count — خارج نطاق ٣.١
         )

@@ -123,8 +123,14 @@ class ClinicalRecord:
 
     chief_complaint: Optional[str] = None
     severity: Optional[str] = None
+    # شدّة رقمية 0-10 — تُملأ فقط من خانة severity@ عبر SlotAnswerValidator
+    severity_numeric: Optional[int] = None
     duration: Optional[str] = None
     body_location: Optional[str] = None
+    # بيانات ديموغرافية مُتحقَّقة حتمياً (لا تخمين LLM)
+    age: Optional[int] = None
+    gender: Optional[str] = None
+    pregnancy_possible: Optional[bool] = None
     medications: List[str] = field(default_factory=list)
     allergies: List[str] = field(default_factory=list)
     chronic_conditions: List[str] = field(default_factory=list)
@@ -139,7 +145,12 @@ class ClinicalRecord:
     # سجلّ التغييرات — يُلحَق ولا يُمحى (يمنع الاستبدال الصامت).
     revisions: List[FactRevision] = field(default_factory=list)
 
-    _SCALAR_FIELDS = ("chief_complaint", "severity", "duration", "body_location")
+    _SCALAR_FIELDS = (
+        "chief_complaint", "severity", "duration", "body_location",
+    )
+    _INT_FIELDS = ("age", "severity_numeric")
+    _BOOL_FIELDS = ("pregnancy_possible",)
+    _STR_FIELDS = ("gender",)
     _LIST_FIELDS = (
         "medications", "allergies", "chronic_conditions", "family_history",
     )
@@ -172,6 +183,48 @@ class ClinicalRecord:
                 setattr(self, name, new_value)
                 if fact is not None:
                     self.provenance[name] = fact
+
+        for name in self._INT_FIELDS:
+            incoming_val = getattr(incoming, name)
+            if incoming_val is None:
+                continue
+            current = getattr(self, name)
+            if incoming_val != current:
+                self.revisions.append(FactRevision(
+                    field_name=name,
+                    old_value=str(current) if current is not None else None,
+                    new_value=str(incoming_val),
+                    turn_number=turn_number,
+                ))
+                setattr(self, name, incoming_val)
+
+        for name in self._STR_FIELDS:
+            incoming_val = getattr(incoming, name)
+            if not incoming_val:
+                continue
+            current = getattr(self, name)
+            if incoming_val != current:
+                self.revisions.append(FactRevision(
+                    field_name=name,
+                    old_value=current,
+                    new_value=incoming_val,
+                    turn_number=turn_number,
+                ))
+                setattr(self, name, incoming_val)
+
+        for name in self._BOOL_FIELDS:
+            incoming_val = getattr(incoming, name)
+            if incoming_val is None:
+                continue
+            current = getattr(self, name)
+            if incoming_val != current:
+                self.revisions.append(FactRevision(
+                    field_name=name,
+                    old_value=str(current) if current is not None else None,
+                    new_value=str(incoming_val),
+                    turn_number=turn_number,
+                ))
+                setattr(self, name, incoming_val)
 
         for name in self._LIST_FIELDS:
             setattr(self, name, _merge_list(

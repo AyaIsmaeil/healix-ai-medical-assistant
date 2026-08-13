@@ -15,6 +15,9 @@ performance. The only deviations from a library's literal default are:
     because multinomial logistic regression on ~1M rows / 49 classes needs
     more iterations to reach the solver's convergence tolerance; this affects
     whether the optimizer *finishes*, not what it optimizes for.
+  * ``class_weight='balanced'`` on sklearn models and matching ``sample_weight``
+    at fit time for XGBoost/LightGBM/CatBoost — fixed policy mandated by
+    CLAUDE.md for DDXPlus's ~247:1 class imbalance (not tuned on validation).
 
 Hyperparameter search, cross-validation, and threshold calibration are
 explicitly out of scope for Phase 6.1 (see docs/research/MODEL_TRAINING_REPORT.md).
@@ -64,12 +67,22 @@ MODEL_FAMILIES = ("logistic_regression", "random_forest", "xgboost",
 
 N_ESTIMATORS = 200   # fixed uniformly across every tree ensemble — see module docstring
 
+# DDXPlus has extreme class imbalance (~247:1 between the largest and
+# smallest pathology buckets). CLAUDE.md mandates handling this via
+# class_weight / sample_weight — never by dropping diseases.
+USE_BALANCED_CLASS_WEIGHTS = True
+SKLEARN_CLASS_WEIGHT = "balanced"
+# Gradient-boosting families do not share sklearn's class_weight API; they
+# receive per-row sample_weight at fit time using the same balanced scheme.
+SAMPLE_WEIGHT_AT_FIT_MODELS = frozenset({"xgboost", "lightgbm", "catboost"})
+
 MODEL_DEFAULTS: Dict[str, Dict[str, Any]] = {
     "logistic_regression": {
         # sklearn defaults kept as-is except max_iter (see module docstring).
         "solver": "lbfgs",
         "max_iter": 1000,
         "n_jobs": None,          # lbfgs multinomial does not parallelize via n_jobs
+        "class_weight": SKLEARN_CLASS_WEIGHT,
     },
     "random_forest": {
         # sklearn defaults kept as-is except n_estimators (see module docstring).
@@ -77,7 +90,7 @@ MODEL_DEFAULTS: Dict[str, Dict[str, Any]] = {
         "n_jobs": -1,
         "max_depth": None,
         "min_samples_leaf": 1,
-        "class_weight": None,
+        "class_weight": SKLEARN_CLASS_WEIGHT,
     },
     "xgboost": {
         # XGBoost defaults kept as-is (max_depth=6, learning_rate=0.3, ...)

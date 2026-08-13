@@ -111,13 +111,25 @@ class RuleBasedFeatureExtractor:
     # ------------------------------------------------------------------
     @staticmethod
     def _extract_age(text: str) -> Optional[int]:
-        match = re.search(r"عمري\s*(\d{1,3})", text) or re.search(
-            r"(\d{1,3})\s*(?:سنة|سنه|عام)", text
-        )
-        if not match:
-            return None
-        age = int(match.group(1))
-        return age if 0 < age < 120 else None
+        explicit = list(re.finditer(r"عمري\s*(\d{1,3})", text))
+        if explicit:
+            age = int(explicit[-1].group(1))
+            return age if 0 < age < 120 else None
+
+        for match in re.finditer(r"(\d{1,3})\s*(?:سنة|سنه|عام|سنوات)", text):
+            window = text[max(0, match.start() - 24):match.start()]
+            if re.search(r"منذ|مدخن|دخن|تدخين|من\s+\d", window):
+                continue
+            age = int(match.group(1))
+            if 0 < age < 120:
+                return age
+
+        stripped = text.strip()
+        if re.fullmatch(r"\d{1,3}", stripped):
+            age = int(stripped)
+            return age if 0 < age < 120 else None
+
+        return None
 
     @staticmethod
     def _extract_gender(text: str) -> Optional[str]:

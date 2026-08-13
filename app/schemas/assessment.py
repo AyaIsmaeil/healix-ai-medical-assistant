@@ -17,6 +17,24 @@ from pydantic import BaseModel, Field, model_validator
 from app.schemas.symptom import SymptomOut
 
 
+class InterviewRiskIn(BaseModel):
+    """نتيجة فحص الأعلام الحمراء من ``RedFlagEngine`` كما أنتجتها المقابلة.
+
+    نسخ حرفي من حقلَي ``emergency_detected``/``risk_level`` الموجودَين أصلاً
+    باستجابة ``POST /api/interview/turn`` — **لا حساب جديد هنا ولا محرّك
+    أعلام حمراء ثانٍ**؛ هذا الحقل ينقل حكماً حتمياً حُسِب سلفاً بمحرّك واحد
+    (نفس مبدأ ``InterviewRecordIn``). اختياري بالكامل؛ إرساله يُغني عن إعادة
+    فحص ``raw_messages`` (أسرع). غيابه **لا يعني** ``has_red_flag=False``
+    بعد الآن (C-1، Phase 1.1) — ``AssessmentFeatureBuilder`` يُشغّل حينها
+    نفس ``RedFlagEngine`` الحقيقي مباشرة على ``raw_messages`` بدل الاعتماد
+    حصراً على هذا الحقل، فتبقى الصحّة مستقلّة عن أي وسيط خارجي (Laravel)
+    يُحدَّث لإرساله أم لا.
+    """
+
+    emergency_detected: bool = False
+    risk_level: str = "none"
+
+
 class InterviewRecordIn(BaseModel):
     """السجل الطبي المنظَّم كما أنتجه وكيل المقابلة السريرية.
 
@@ -55,6 +73,14 @@ class AssessmentRequest(BaseModel):
         default=None,
         description="السجل المنظَّم من المقابلة. إرساله يمنع إعادة استخراج ما "
         "ورد فيه (أسرع وأرخص)، ويملأ التاريخ المرضي. حذفه لا يكسر شيئاً.",
+    )
+    interview_risk: Optional[InterviewRiskIn] = Field(
+        default=None,
+        description="نتيجة فحص الأعلام الحمراء من /api/interview/turn إن "
+        "وُجدت (نسخ حرفي من emergency_detected/risk_level) — يُغني عن إعادة "
+        "الفحص. حذفها لا يُسقِط الاستعجال إلى قيمة ثابتة (C-1، Phase 1.1): "
+        "الخادم يُعيد فحص raw_messages بنفس محرّك الأعلام الحمراء الحقيقي "
+        "تلقائياً.",
     )
 
     model_config = {
@@ -218,17 +244,32 @@ class AssessmentExplanationOut(BaseModel):
     disclaimer: str
 
 
+class RagSourceOut(BaseModel):
+    """مصدر PubMed مسترجَع (RAG) — للشفافية والاستشهاد."""
+
+    doc_id: str
+    pmid: str
+    disease_name: str = ""
+    medical_specialty: str = ""
+    triage_level: str = ""
+    snippet: str = ""
+    pubmed_url: str = ""
+    relevance_score: Optional[float] = None
+
+
 class AssessmentResponse(BaseModel):
-    """استجابة محرّك التقييم: بناء الميزات (٣.١) + التحقّق (٣.٢) + الترميز
-    (٣.٣) + التنبؤ القاعدي بالمرض (٣.٤) + تقييم الاستعجال القاعدي (٣.٥) +
-    توصية التخصّص القاعدية (٣.٦) + تقدير الموثوقية القاعدي (٣.٧) + التفسير
-    النهائي بالعربية (٣.٨) — الخطّ الكامل."""
+    """استجابة محرّك التقييم الهجين: قواعد + ML + RAG (اختياري)."""
 
     success: bool = True
     status: str = "features_extracted"
+    hybrid_mode: str = Field(
+        default="rules_ml",
+        description="rules_ml | rules_ml_rag — يبيّن إن RAG شارك في الشرح",
+    )
     features: ClinicalFeatureSetOut
     predictions: DiseasePredictionResultOut = Field(default_factory=DiseasePredictionResultOut)
     urgency: UrgencyAssessmentOut
     specialty: SpecialtyRecommendationOut
     confidence: ConfidenceAssessmentOut
     explanation: AssessmentExplanationOut
+    rag_sources: List[RagSourceOut] = Field(default_factory=list)

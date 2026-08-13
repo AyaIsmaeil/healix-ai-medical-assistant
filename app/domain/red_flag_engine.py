@@ -38,8 +38,6 @@ L0 يكتشف النفي **لفظياً** بنافذة قصيرة قبل الم�
 
 from __future__ import annotations
 
-import re
-import unicodedata
 from typing import Any, Dict, Iterable, List, Sequence, Set, Tuple
 
 from app.domain.red_flags import (
@@ -51,25 +49,15 @@ from app.domain.red_flags import (
     TriggerType,
     escalate,
 )
+# مصدر التطبيع الوحيد الآن ``domain.text_preprocessing`` (المبني على CAMeL
+# Tools) — يُعاد تصديره هنا حفاظاً على واردات ``from ... red_flag_engine
+# import normalize_arabic`` القائمة (clinical_priority، conversation_service،
+# الاختبارات) دون تغييرها.
+from app.domain.text_preprocessing import normalize_arabic
 
 # ----------------------------------------------------------------------
-# تطبيع النصّ العربي
+# النفي
 # ----------------------------------------------------------------------
-# التشكيل وعلامات الإطالة — تُحذف كلياً قبل المطابقة.
-_DIACRITICS = re.compile(r"[ً-ْٰـ]")
-# توحيد المحارف المتغيّرة (ألف بأشكالها، ياء/ألف مقصورة، تاء مربوطة، همزات).
-_CHAR_MAP = str.maketrans({
-    "أ": "ا", "إ": "ا", "آ": "ا", "ٱ": "ا",
-    "ى": "ي", "ئ": "ي",
-    "ؤ": "و",
-    "ة": "ه",
-    # الأرقام العربية-الهندية → لاتينية (لتوحيد "عمره ٤٠ يوم").
-    "٠": "0", "١": "1", "٢": "2", "٣": "3", "٤": "4",
-    "٥": "5", "٦": "6", "٧": "7", "٨": "8", "٩": "9",
-})
-_NON_WORD = re.compile(r"[^\w\s]", re.UNICODE)
-_WHITESPACE = re.compile(r"\s+")
-
 # صيغ النفي التي تُبطل مطابقة تليها مباشرةً (نافذة قصيرة).
 _NEGATION_CUES: Tuple[str, ...] = (
     "ما في", "مافي", "ما عندي", "ماعندي", "لا يوجد", "لايوجد",
@@ -79,23 +67,6 @@ _NEGATION_CUES: Tuple[str, ...] = (
 # نافذة النفي بالمحارف — قصيرة عمداً: نافذة طويلة تُسقط طوارئ حقيقية
 # (مثال: "ما عندي سكري بس عندي الم صدر" — النفي يخصّ السكري لا الألم).
 _NEGATION_WINDOW = 18
-
-
-def normalize_arabic(text: str) -> str:
-    """تطبيع نصّ عربي/إنجليزي للمطابقة المعجمية.
-
-    يحذف التشكيل والإطالة، يوحّد الألف والياء والتاء المربوطة والهمزات،
-    يحوّل الأرقام العربية-الهندية، يزيل الترقيم، ويوحّد المسافات.
-    لا يغيّر المعنى — عمليات شكلية بحتة تجعل "ألم صَدر" و"الم صدر" متطابقين.
-    """
-    if not text:
-        return ""
-    text = unicodedata.normalize("NFKC", text)
-    text = _DIACRITICS.sub("", text)
-    text = text.translate(_CHAR_MAP)
-    text = _NON_WORD.sub(" ", text)
-    text = _WHITESPACE.sub(" ", text)
-    return text.strip().lower()
 
 
 def _is_negated(haystack: str, index: int) -> bool:
@@ -195,6 +166,46 @@ class RedFlagEngine:
             evidence.setdefault(group, ev)
 
         return self._fire(present, evidence, DetectionLayer.STRUCTURED_RECORD)
+
+    # ------------------------------------------------------------------
+    # C-3 — استعلام أولوية الأسئلة (لا يُطلق أي قاعدة، لا يُنتج تقييماً)
+    # ------------------------------------------------------------------
+    def is_red_flag_pathway_evidence(self, text: str) -> bool:
+        """هل يقدّم هذا النصّ وحده دليلاً كافياً ليكون عرَضه "على مسار"
+        قاعدة علم أحمر حالية — لا مجرّد مطابقة عابرة لجزء منها؟
+
+        استعلام قراءة فقط لأولوية أسئلة المقابلة (``domain.clinical``) —
+        **لا يُطلق قاعدة ولا يُنتج ``RedFlagAssessment``**، ولا يخترع أي
+        علم أحمر جديد ولا مطابقة جديدة: يعيد استخدام ``_match_groups``
+        وكتالوج ``self._rules`` الحاليَين حرفياً. الفارق عن الاسم القديم
+        (``is_potential_trigger``، محذوف): ذاك كان يكتفي بمطابقة **مجموعة
+        واحدة فقط** من ``all_of`` قاعدةٍ قد تتطلّب أكثر من مجموعة معاً — فكان
+        "صداع" وحده يُعَدّ مُطلِقاً لقاعدة "الصداع الرعدي" رغم غياب
+        ``thunderclap_quality`` كلياً، وكذلك "حرارة" وحدها لقاعدة حمى الرضيع
+        رغم غياب السياق الديموغرافي. هذا خطأ دلالي مُثبَت (انظر تدقيق
+        Phase 0)، لا مجرّد اسم غير دقيق.
+
+        القاعدة الصحيحة المُطبَّقة هنا لكل قاعدة علم أحمر:
+          * لها ``all_of``: يجب أن يحضر هذا النصّ **كل** مجموعاته معاً (لا
+            مجموعة واحدة فقط) — فيكفي هذا وحده (بصرف النظر عن ``any_of``،
+            لأنّ استكمال ``any_of`` بالتحديد هو ما تفيد فيه أولوية الأسئلة).
+            قاعدة بمجموعة ``all_of`` وحيدة (كألم الصدر) تتحقّق بهذا النصّ
+            وحده تلقائياً — لا تغيير هنا عن السلوك القديم لهذه الحالة.
+          * ``all_of`` فارغة (مثل قاعدة FAST): تُطلَق أصلاً بأيّ عضو من
+            ``any_of`` وحده، فحضور عضو واحد منها بهذا النصّ كافٍ — حالة كانت
+            الآلية القديمة تُغفلها كلياً لأنّها فحصت ``all_of`` فقط.
+        """
+        present, _ = self._match_groups([text], apply_negation=False)
+        if not present:
+            return False
+        for rule in self._rules:
+            if rule.all_of:
+                if all(group in present for group in rule.all_of):
+                    return True
+                continue
+            if rule.any_of and any(group in present for group in rule.any_of):
+                return True
+        return False
 
     # ------------------------------------------------------------------
     # داخلي

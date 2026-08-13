@@ -33,6 +33,7 @@ _DEFAULT_SPECIALTY_LOOKUP_PATH = _DICTIONARIES_DIR / "specialty_lookup.yaml"
 _DEFAULT_RED_FLAGS_PATH = _DICTIONARIES_DIR / "red_flags.yaml"
 _DEFAULT_CLINICAL_PRIORITY_PATH = _DICTIONARIES_DIR / "clinical_priority.yaml"
 _DEFAULT_SYMPTOM_EVIDENCE_MAP_PATH = _DICTIONARIES_DIR / "symptom_evidence_map.yaml"
+_DEFAULT_DISEASE_METADATA_PATH = _DICTIONARIES_DIR / "disease_metadata.yaml"
 
 
 class DictionaryLoader:
@@ -109,6 +110,21 @@ class DictionaryLoader:
         resolved_path = path or _DEFAULT_SYMPTOM_EVIDENCE_MAP_PATH
         data = DictionaryLoader._load_yaml(resolved_path)
         _validate_symptom_evidence_map_structure(data, resolved_path)
+        return data
+
+    @staticmethod
+    def load_disease_metadata(path: Optional[Path] = None) -> Dict[str, Any]:
+        """يحمّل قاموس البيانات الوصفية للأمراض (ICD-10 + severity + التخصّص
+        المُقترَح) ويتحقّق من بنيته وتماسكه.
+
+        التدفّق: Disease -> disease_metadata -> Specialty. يفشل الإقلاع
+        بوضوح لو كان أي مرض بلا specialty (ممنوع صراحة قيمة فارغة/None)، أو
+        requires_review=true بلا review_reason موثَّق — بدل تمرير توصية
+        تخصّص صامتة أو غير مُبرَّرة إلى الإنتاج.
+        """
+        resolved_path = path or _DEFAULT_DISEASE_METADATA_PATH
+        data = DictionaryLoader._load_yaml(resolved_path)
+        _validate_disease_metadata_structure(data, resolved_path)
         return data
 
     @staticmethod
@@ -522,3 +538,45 @@ def _validate_symptom_evidence_map_structure(data: Any, source: Path) -> None:
             raise FeatureValidationError(
                 f"'{concept}': يتطلّب 'evidence_codes' قائمة نصوص غير فارغة ({source})."
             )
+
+
+def _validate_disease_metadata_structure(data: Any, source: Path) -> None:
+    """تحقّق بنيوي صارم — يفشل الإقلاع بوضوح عند أي انحراف عن العقد المتوقَّع.
+
+    القاعدتان الحاسمتان (لا تُخفَّفان مهما بدت القاعدة مُرهِقة):
+    ١. specialty يجب أن يكون نصّاً غير فارغ دائماً — لا None، لا سلسلة فارغة.
+    ٢. requires_review=true يتطلّب review_reason موثَّقاً — لا علم "غامض"
+       بلا تفسير مكتوب.
+    """
+    if not isinstance(data, dict):
+        raise FeatureValidationError(f"جذر قاموس البيانات الوصفية للأمراض يجب أن يكون كائناً ({source}).")
+
+    diseases = data.get("diseases")
+    if not isinstance(diseases, dict) or not diseases:
+        raise FeatureValidationError(f"قاموس البيانات الوصفية للأمراض يتطلّب 'diseases' كائناً غير فارغ ({source}).")
+
+    for name, entry in diseases.items():
+        if not isinstance(entry, dict):
+            raise FeatureValidationError(f"'{name}': مدخلة مرض غير صالحة (ليست كائناً) ({source}).")
+
+        specialty = entry.get("specialty")
+        if not isinstance(specialty, str) or not specialty.strip():
+            raise FeatureValidationError(
+                f"'{name}': يتطلّب 'specialty' نصّياً غير فارغ — لا يُسمح بقيمة فارغة/None ({source})."
+            )
+
+        requires_review = entry.get("requires_review")
+        if not isinstance(requires_review, bool):
+            raise FeatureValidationError(
+                f"'{name}': يتطلّب 'requires_review' قيمة منطقية (true/false) ({source})."
+            )
+
+        review_reason = entry.get("review_reason")
+        if requires_review and (not isinstance(review_reason, str) or not review_reason.strip()):
+            raise FeatureValidationError(
+                f"'{name}': requires_review=true يتطلّب 'review_reason' موثَّقاً غير فارغ ({source})."
+            )
+
+        icd10 = entry.get("icd10")
+        if not isinstance(icd10, str) or not icd10.strip():
+            raise FeatureValidationError(f"'{name}': يتطلّب 'icd10' نصّياً غير فارغ ({source}).")

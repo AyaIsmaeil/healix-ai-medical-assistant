@@ -25,6 +25,7 @@ from __future__ import annotations
 from typing import List, Optional, Tuple
 
 from app.domain.assessment import ClinicalFeatureSet, SymptomFeature
+from app.domain.prediction import DiseasePredictionResult
 from app.domain.urgency import UrgencyAssessment, UrgencyLevel
 
 _LEVEL_SCORES = {
@@ -43,8 +44,13 @@ _SEMI_URGENT_SEVERITY_MAX = 8
 class RuleBasedUrgencyClassifier:
     """يطبّق قواعد حتمية بسيطة (Placeholder) على ``ClinicalFeatureSet`` مباشرة."""
 
-    def classify(self, clinical_features: ClinicalFeatureSet) -> UrgencyAssessment:
+    def classify(
+        self,
+        clinical_features: ClinicalFeatureSet,
+        prediction_result: Optional[DiseasePredictionResult] = None,
+    ) -> UrgencyAssessment:
         """يُعيد ``UrgencyAssessment`` دائماً — استقرار افتراضي NON_URGENT."""
+        _ = prediction_result  # غير مستخدم — التوافق مع UrgencyClassifierPort
         temperature = clinical_features.temperature_c
         severity = self._primary_severity(clinical_features.symptoms)
         has_red_flag = clinical_features.derived.has_red_flag

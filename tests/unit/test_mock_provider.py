@@ -6,6 +6,7 @@ from collections import namedtuple
 from app.domain import clinical
 from app.llm.mock_provider import MockLLMProvider
 from app.parsing.interview_parser import parse_interview_decision, parse_interview_turn
+from app.parsing.symptom_extraction_parser import parse_symptoms
 from app.prompts.interview_builder import (
     LABEL_ASKED,
     LABEL_KNOWN_NEGATED,
@@ -15,6 +16,7 @@ from app.prompts.interview_builder import (
     LABEL_SUGGESTED,
     LABEL_TURN,
 )
+from app.prompts.symptom_extraction_builder import SymptomExtractionPromptBuilder
 
 
 def _prompt(symptoms=None, asked=None, patient_messages=None):
@@ -87,14 +89,15 @@ def test_finishes_when_all_asked():
 
 
 def test_emits_the_unified_contract():
-    """المزوّد الوهمي يُنتج العقد الموحّد كاملاً (استخراج + قرار)."""
+    """المزوّد الوهمي يُنتج عقد دور المقابلة (سجل + قرار السؤال التالي)، بلا
+    أعراض — الأعراض تُستخرَج بمسار SymptomExtractor المستقلّ."""
     provider = MockLLMProvider()
     out = provider.generate("sys", _prompt(
         symptoms=[{"text": "صداع", "negated": False}]
     ))
     turn = parse_interview_turn(out.text)
 
-    assert [s.text for s in turn.symptoms] == ["صداع"]
+    assert turn.symptoms == []
     assert turn.record.chief_complaint == "صداع"
     assert turn.decision.finished is False
     # لا يخترع قيماً طبية لم تُذكر.
@@ -102,15 +105,24 @@ def test_emits_the_unified_contract():
     assert turn.record.medications == []
 
 
-def test_detects_symptoms_and_negation_from_patient_text():
-    """بلا مستخرج خارجي: المزوّد الوهمي يستخرج من نص المريض مباشرةً."""
-    provider = MockLLMProvider()
-    out = provider.generate("sys", _prompt(
-        patient_messages=["عندي حرارة وصداع ولا يوجد سعال"]
-    ))
-    turn = parse_interview_turn(out.text)
+def _symptom_extraction_builder() -> SymptomExtractionPromptBuilder:
+    return SymptomExtractionPromptBuilder(mappings=[
+        {"concept": "fever", "names": ["حرارة"]},
+        {"concept": "headache", "names": ["صداع"]},
+        {"concept": "cough", "names": ["سعال"]},
+    ])
 
-    found = {(s.text, s.negated) for s in turn.symptoms}
+
+def test_detects_symptoms_and_negation_from_patient_text():
+    """مسار استخراج الأعراض المستقلّ (CONCEPT_CATALOG) يستخرج من نص المريض مباشرةً."""
+    builder = _symptom_extraction_builder()
+    provider = MockLLMProvider()
+    prompt = builder.extraction_prompt(["عندي حرارة وصداع ولا يوجد سعال"])
+
+    out = provider.generate(builder.system_prompt(), prompt)
+    symptoms = parse_symptoms(out.text, builder.concepts)
+
+    found = {(s.text, s.negated) for s in symptoms}
     assert ("حرارة", False) in found
     assert ("صداع", False) in found
     assert ("سعال", True) in found

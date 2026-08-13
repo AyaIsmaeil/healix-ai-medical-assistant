@@ -39,6 +39,7 @@ from training.disease_prediction.dataset import (SPLIT_FILES,
 from training.disease_prediction.evaluate import evaluate_split
 from training.disease_prediction.models import model_registry
 from training.disease_prediction.utils import (PeakMemorySampler, Timer,
+                                                balanced_sample_weights,
                                                 directory_size_bytes,
                                                 set_global_seed, setup_logger,
                                                 write_json)
@@ -71,13 +72,42 @@ def _save_confusion_matrix_plot(cm: np.ndarray, class_names: List[str],
         return None
 
 
+def _class_balancing_meta(name: str, y_train: np.ndarray) -> Dict[str, Any]:
+    """Describe how imbalance handling is applied for this model family."""
+    if not config.USE_BALANCED_CLASS_WEIGHTS:
+        return {"enabled": False}
+
+    if name in config.SAMPLE_WEIGHT_AT_FIT_MODELS:
+        return {
+            "enabled": True,
+            "method": "sample_weight_balanced",
+            "source": "sklearn.utils.class_weight.compute_sample_weight",
+        }
+
+    params = config.MODEL_DEFAULTS.get(name, {})
+    if params.get("class_weight") == config.SKLEARN_CLASS_WEIGHT:
+        return {
+            "enabled": True,
+            "method": "class_weight_balanced",
+            "class_weight": config.SKLEARN_CLASS_WEIGHT,
+        }
+
+    return {"enabled": False}
+
+
 def _fit_one_model(name: str, spec, X_train: np.ndarray, y_train: np.ndarray,
                    logger) -> Dict[str, Any]:
     logger.info("fitting %s ...", spec.display_name)
     model = spec.build()
 
+    fit_kwargs: Dict[str, Any] = {}
+    balancing = _class_balancing_meta(name, y_train)
+    if balancing.get("enabled") and name in config.SAMPLE_WEIGHT_AT_FIT_MODELS:
+        fit_kwargs["sample_weight"] = balanced_sample_weights(y_train)
+        logger.info("%s: balanced sample_weight enabled", spec.display_name)
+
     with PeakMemorySampler() as mem, Timer() as t:
-        model.fit(X_train, y_train)
+        model.fit(X_train, y_train, **fit_kwargs)
 
     model_path = config.MODELS_DIR / f"{name}.joblib"
     model_path.parent.mkdir(parents=True, exist_ok=True)
@@ -89,7 +119,8 @@ def _fit_one_model(name: str, spec, X_train: np.ndarray, y_train: np.ndarray,
 
     return {"model": model, "model_path": str(model_path),
             "train_seconds": t.elapsed, "peak_memory_mb": mem.peak_mb,
-            "model_size_mb": size_mb}
+            "model_size_mb": size_mb,
+            "class_balancing": balancing}
 
 
 def _load_existing_result(name: str, spec, n_train_rows: int,
@@ -190,6 +221,7 @@ def run(model_names: Optional[List[str]] = None,
             "handles_native_nan": spec.handles_native_nan,
             "imputation_note": spec.imputation_note,
             "hyperparameters": config.MODEL_DEFAULTS.get(name, {}),
+            "class_balancing": fit_info.get("class_balancing"),
             **fit_info,
             "validation_full": full,
             "validation_leakage_free": clean,

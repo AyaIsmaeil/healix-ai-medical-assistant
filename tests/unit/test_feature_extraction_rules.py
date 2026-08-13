@@ -12,6 +12,21 @@ def test_extracts_age_from_explicit_phrase():
     assert result.age == 34
 
 
+def test_extracts_bare_age_answer():
+    result = _extractor().extract(["23"])
+    assert result.age == 23
+
+
+def test_ignores_smoking_duration_years_false_positive():
+    result = _extractor().extract(["أنا مدخن منذ 6 سنوات وعندي ضيق نفس"])
+    assert result.age is None
+
+
+def test_explicit_age_wins_over_duration_years():
+    result = _extractor().extract(["مدخن منذ 6 سنوات", "عمري 23 سنة"])
+    assert result.age == 23
+
+
 def test_extracts_age_with_arabic_indic_digits():
     result = _extractor().extract(["عمري ٤٠ عام"])
     assert result.age == 40

@@ -12,6 +12,7 @@ import json
 
 import pytest
 
+from app.domain.conversation import Symptom
 from app.domain.ports import Completion
 from app.domain.red_flag_engine import RedFlagEngine
 from app.domain.red_flags import RiskLevel
@@ -61,13 +62,38 @@ class Broken:
         raise RuntimeError("OpenRouter unavailable")
 
 
-def service(provider, flags, max_questions=8):
+class ScriptedSymptomExtractor:
+    """بديل اختباري لـ CompositeSymptomExtractor — أعراض محدّدة مسبقاً بالترتيب.
+
+    الأعراض تُستخرَج بمسار مستقلّ عن ردّ الـLLM هنا، فلا تصل عبر حقل
+    ``symptoms`` داخل ``payload()``."""
+
+    def __init__(self, batches=None):
+        self._batches = batches or []
+        self._i = 0
+
+    def extract(self, raw_messages, known_symptoms=None):
+        if self._i >= len(self._batches):
+            return []
+        batch = self._batches[self._i]
+        self._i += 1
+        return [
+            Symptom(
+                text=s["text"], negated=s.get("negated", False),
+                confidence=s.get("confidence", 0.9), evidence=s.get("evidence"),
+            )
+            for s in batch
+        ]
+
+
+def service(provider, flags, max_questions=8, symptom_batches=None):
     return ConversationService(
         provider=provider,
         prompt_builder=InterviewPromptBuilder(),
         store=InMemorySessionStore(),
         max_questions=max_questions,
         red_flag_engine=flags,
+        symptom_extractor=ScriptedSymptomExtractor(symptom_batches),
     )
 
 
@@ -139,10 +165,10 @@ def test_degraded_flag_is_false_on_healthy_path(flags):
 # ----------------------------------------------------------------------
 def test_structured_extraction_can_raise_risk_alone(flags):
     """صياغة غير مغطّاة لفظياً، لكن الـLLM طبّعها إلى مصطلح معروف."""
-    svc = service(Scripted(payload(symptoms=[
+    svc = service(Scripted(payload()), flags, symptom_batches=[[
         {"text": "ألم صدر", "negated": False, "confidence": 0.9, "evidence": None},
         {"text": "ضيق تنفس", "negated": False, "confidence": 0.9, "evidence": None},
-    ])), flags)
+    ]])
     state, _ = svc.handle_message("حاسس بشي غريب بقفصي الصدري ونفسي تقيل", None)
 
     assert state.risk.is_emergency
@@ -150,11 +176,11 @@ def test_structured_extraction_can_raise_risk_alone(flags):
 
 def test_inferred_symptoms_still_trigger_red_flags(flags):
     """قرار سلامة صريح: التصعيد أأمن من الإسقاط."""
-    svc = service(Scripted(payload(symptoms=[
+    svc = service(Scripted(payload()), flags, symptom_batches=[[
         {"text": "ألم صدر", "negated": False, "confidence": 0.5,
          "evidence": "شاهد مختلق لا يرد في كلام المريض"},
         {"text": "ضيق تنفس", "negated": False, "confidence": 0.5, "evidence": None},
-    ])), flags)
+    ]])
     state, _ = svc.handle_message("ما بعرف شو فيني", None)
 
     from app.domain.clinical_record import FactSource

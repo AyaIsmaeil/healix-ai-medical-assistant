@@ -63,6 +63,39 @@ def test_equal_acuity_falls_back_to_recency_then_text(engine):
     assert [p.symptom_text for p in first] == [p.symptom_text for p in second]
 
 
+# ----------------------------------------------------------------------
+# C-2: سقف recency_boost — لا يجوز أن يقلب شكوى أعلى حدّة بفارق معتبر
+# ----------------------------------------------------------------------
+def test_recency_does_not_override_materially_higher_acuity(engine):
+    """السيناريو المُثبَت بـHEALIX_INTERVIEW_ASSESSMENT_AUDIT.md: ألم الصدر
+    (acuity=95) ذُكر أولاً، ثمّ ضيق التنفّس (acuity=92) بدور لاحق. فارق 3
+    نقاط أكبر من RECENCY_ACUITY_TOLERANCE (2.0) — يجب أن يبقى ألم الصدر
+    الشكوى الرئيسية رغم كون ضيق التنفّس الأحدث ذكراً."""
+    ranked = engine.rank([s("ألم صدر", turn=1), s("ضيق تنفس", turn=3)])
+    by_text = {p.symptom_text: p for p in ranked}
+    assert ranked[0].symptom_text == "ألم صدر"
+    assert by_text["ضيق تنفس"].recency_boost == 0.0
+    assert by_text["ألم صدر"].score > by_text["ضيق تنفس"].score
+
+
+def test_recency_still_breaks_a_genuine_near_tie(engine):
+    """عند فارق acuity صغير فعلاً (هنا 1 نقطة: seizure=93 مقابل
+    dyspnea=92 — ضمن RECENCY_ACUITY_TOLERANCE)، يبقى recency_boost قادراً
+    على حسم الأولوية لصالح الأحدث ذكراً — لا إلغاء كامل لأثر recency."""
+    ranked = engine.rank([s("ضيق تنفس", turn=1), s("تشنج", turn=3)])
+    by_text = {p.symptom_text: p for p in ranked}
+    assert by_text["تشنج"].recency_boost == 10.0
+    assert ranked[0].symptom_text == "تشنج"
+
+
+def test_most_acute_symptom_always_keeps_its_own_recency_when_latest(engine):
+    """العرَض الأعلى حدّة بالجلسة فارقه عن نفسه صفر — يبقى مؤهَّلاً
+    لـrecency_boost كاملاً إن كان هو الأحدث ذكراً أيضاً (لا قيد ذاتياً)."""
+    ranked = engine.rank([s("رشح", turn=1), s("ألم صدر", turn=2)])
+    by_text = {p.symptom_text: p for p in ranked}
+    assert by_text["ألم صدر"].recency_boost == 10.0
+
+
 def test_negated_symptoms_are_excluded(engine):
     """عرَض نفاه المريض لا يصلح محوراً للتاريخ المرضي."""
     assert engine.primary([s("ألم صدر", negated=True), s("صداع")]) == "صداع"
@@ -235,22 +268,53 @@ class Scripted:
         return Completion(json.dumps(data, ensure_ascii=False), model="scripted")
 
 
-def build(provider, engine, flags):
+class ScriptedSymptomExtractor:
+    """بديل اختباري لـ CompositeSymptomExtractor — أعراض محدّدة مسبقاً بالترتيب.
+
+    الأعراض تُستخرَج بمسار مستقلّ عن ردّ الـLLM (سجل + قرار)، فتُحقَن هنا
+    موازيةً لدفعات ``Scripted`` بدل حقل ``symptoms`` داخل ``turn_payload``.
+    """
+
+    def __init__(self, *batches):
+        self._batches = list(batches)
+        self._i = 0
+
+    def extract(self, raw_messages, known_symptoms=None):
+        if self._i >= len(self._batches):
+            return []
+        batch = self._batches[self._i]
+        self._i += 1
+        return [
+            Symptom(
+                text=s["text"], negated=s.get("negated", False),
+                confidence=s.get("confidence", 0.9), evidence=s.get("evidence"),
+            )
+            for s in batch
+        ]
+
+
+def build(provider, engine, flags, symptom_extractor=None):
     return ConversationService(
         provider=provider, prompt_builder=InterviewPromptBuilder(),
         store=InMemorySessionStore(), red_flag_engine=flags,
         priority_engine=engine, max_questions=40,
+        symptom_extractor=symptom_extractor,
     )
 
 
 def test_service_reanchors_mid_interview(engine, flags):
     """السيناريو المرجعي كاملاً عبر الخدمة."""
-    svc = build(Scripted(
-        turn_payload([sym_payload("صداع", "عندي صداع")]),
-        turn_payload([sym_payload("صداع", "عندي صداع"),
-                      sym_payload("ألم صدر", "ألم ضاغط بصدري")],
-                     next_slot="severity", question="س٢؟"),
-    ), engine, flags)
+    svc = build(
+        Scripted(
+            turn_payload([]),
+            turn_payload([], next_slot="severity", question="س٢؟"),
+        ),
+        engine, flags,
+        symptom_extractor=ScriptedSymptomExtractor(
+            [sym_payload("صداع", "عندي صداع")],
+            [sym_payload("ألم صدر", "ألم ضاغط بصدري")],
+        ),
+    )
 
     state, _ = svc.handle_message("عندي صداع", None)
     assert state.primary_complaint == "صداع"
@@ -262,12 +326,17 @@ def test_service_reanchors_mid_interview(engine, flags):
 def test_service_recomputes_every_turn_not_once(engine, flags):
     """القرار يُعاد حسابه لا يُثبَّت — يعود للصداع لو زال ألم الصدر مستحيل،
     لكن ترتيب الدرجات يجب أن يُحدَّث في كل دور."""
-    svc = build(Scripted(
-        turn_payload([sym_payload("صداع", "عندي صداع")]),
-        turn_payload([sym_payload("صداع", "عندي صداع"),
-                      sym_payload("حرارة", "وحرارة")],
-                     next_slot="severity", question="س؟"),
-    ), engine, flags)
+    svc = build(
+        Scripted(
+            turn_payload([]),
+            turn_payload([], next_slot="severity", question="س؟"),
+        ),
+        engine, flags,
+        symptom_extractor=ScriptedSymptomExtractor(
+            [sym_payload("صداع", "عندي صداع")],
+            [sym_payload("حرارة", "وحرارة")],
+        ),
+    )
 
     state, _ = svc.handle_message("عندي صداع", None)
     first = list(state.symptom_priorities)
@@ -292,11 +361,14 @@ def test_service_without_priority_engine_degrades_safely(flags):
 
 def test_llm_never_decides_the_primary_complaint(engine, flags):
     """النموذج يزعم شكوى مخالفة — المحرّك لا يعبأ بها."""
-    svc = build(Scripted(turn_payload(
-        [sym_payload("صداع", "عندي صداع"),
-         sym_payload("ألم صدر", "ألم ضاغط بصدري")],
-        chief_complaint="صداع",          # ادّعاء النموذج
-    )), engine, flags)
+    svc = build(
+        Scripted(turn_payload([], chief_complaint="صداع")),  # ادّعاء النموذج
+        engine, flags,
+        symptom_extractor=ScriptedSymptomExtractor([
+            sym_payload("صداع", "عندي صداع"),
+            sym_payload("ألم صدر", "ألم ضاغط بصدري"),
+        ]),
+    )
 
     state, _ = svc.handle_message("عندي صداع وألم ضاغط بصدري", None)
 
@@ -306,9 +378,14 @@ def test_llm_never_decides_the_primary_complaint(engine, flags):
 
 def test_prompt_exposes_engine_primary_to_the_model(engine, flags):
     """التعليمات تُبلّغ النموذج بقرار المحرّك كتأريض لا كاقتراح."""
-    svc = build(Scripted(turn_payload(
-        [sym_payload("صداع", "عندي صداع"),
-         sym_payload("ألم صدر", "ألم ضاغط بصدري")])), engine, flags)
+    svc = build(
+        Scripted(turn_payload([])),
+        engine, flags,
+        symptom_extractor=ScriptedSymptomExtractor([
+            sym_payload("صداع", "عندي صداع"),
+            sym_payload("ألم صدر", "ألم ضاغط بصدري"),
+        ]),
+    )
     state, _ = svc.handle_message("عندي صداع وألم ضاغط بصدري", None)
 
     prompt = InterviewPromptBuilder().turn_prompt(state)
@@ -323,11 +400,16 @@ def test_prompt_exposes_engine_primary_to_the_model(engine, flags):
 # ----------------------------------------------------------------------
 def test_question_targeting_another_symptom_is_redirected(engine, flags):
     """المحرّك حوّل المحور، والنموذج ظلّ يسأل عن العرَض القديم — يُعاد توجيهه."""
-    svc = build(Scripted(turn_payload(
-        [sym_payload("صداع", "عندي صداع"),
-         sym_payload("ألم صدر", "ألم ضاغط بصدري")],
-        next_slot="severity", question="كم شدّة الصداع بالنسبة لك؟",
-    )), engine, flags)
+    svc = build(
+        Scripted(turn_payload(
+            [], next_slot="severity", question="كم شدّة الصداع بالنسبة لك؟",
+        )),
+        engine, flags,
+        symptom_extractor=ScriptedSymptomExtractor([
+            sym_payload("صداع", "عندي صداع"),
+            sym_payload("ألم صدر", "ألم ضاغط بصدري"),
+        ]),
+    )
 
     state, decision = svc.handle_message("عندي صداع وألم ضاغط بصدري", None)
 

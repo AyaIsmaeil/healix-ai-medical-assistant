@@ -1,5 +1,4 @@
 import logging
-import os
 from contextlib import asynccontextmanager
 
 import uvicorn
@@ -10,7 +9,7 @@ from fastapi.responses import JSONResponse
 
 load_dotenv()
 
-from app.config import config
+from app.config import ENV, config
 from app.domain.clinical_priority import ClinicalPriorityEngine
 from app.domain.feature_encoder import FeatureEncoder
 from app.domain.feature_extraction_rules import RuleBasedFeatureExtractor
@@ -18,6 +17,8 @@ from app.domain.feature_validator import FeatureValidator
 from app.domain.ml_disease_predictor import MLDiseasePredictor
 from app.domain.red_flag_engine import RedFlagEngine
 from app.domain.rule_based_confidence_estimator import RuleBasedConfidenceEstimator
+from app.domain.hybrid_confidence_estimator import HybridConfidenceEstimator
+from app.domain.hybrid_urgency_classifier import HybridUrgencyClassifier
 from app.domain.rule_based_predictor import RuleBasedDiseasePredictor
 from app.domain.rule_based_specialty_recommender import RuleBasedSpecialtyRecommender
 from app.domain.rule_based_urgency_classifier import RuleBasedUrgencyClassifier
@@ -47,6 +48,11 @@ from app.prompts.assessment_extraction_builder import (
     EXTRACTION_JSON_SCHEMA,
     AssessmentExtractionPromptBuilder,
 )
+from app.parsing.symptom_extraction_parser import (
+    SYMPTOM_EXTRACTION_JSON_NUDGE,
+    validate_symptom_extraction_shape,
+)
+from app.prompts.symptom_extraction_builder import SymptomExtractionPromptBuilder
 from app.prompts.evidence_concept_extraction_builder import (
     EvidenceConceptExtractionPromptBuilder,
 )
@@ -58,11 +64,18 @@ from app.prompts.interview_builder import (
     INTERVIEW_JSON_SCHEMA,
     InterviewPromptBuilder,
 )
+from app.middleware.api_key_auth import APIKeyAuthMiddleware
 from app.routes import assessment, health, interview, speech
+from app.rag.retriever import MedicalKnowledgeRetriever
 from app.services.assessment_explainer import AssessmentExplainer
 from app.services.assessment_feature_builder import AssessmentFeatureBuilder
 from app.services.conversation_service import ConversationService
+from app.services.composite_symptom_extractor import CompositeSymptomExtractor
+from app.services.composite_evidence_concept_extractor import CompositeEvidenceConceptExtractor
 from app.services.evidence_concept_extractor import EvidenceConceptExtractor
+from app.services.llm_symptom_extractor import LLMSymptomExtractor
+from app.services.rule_based_symptom_extractor import RuleBasedSymptomExtractor
+from app.services.rule_based_evidence_concept_extractor import RuleBasedEvidenceConceptExtractor
 from app.services.llm_feature_extractor import LLMFeatureExtractor
 from app.services.speech_to_text import SpeechToTextService
 
@@ -77,6 +90,13 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """تحميل النموذج وتهيئة الخدمات عند بدء التشغيل، والتنظيف عند الإغلاق."""
     logger.info(" بدء تشغيل خدمة Healix...")
+
+    if ENV == "production" and not config.HEALIX_API_KEY:
+        raise RuntimeError("HEALIX_API_KEY is required when ENV=production.")
+    if not config.API_KEY_ENABLED:
+        logger.warning(
+            "HEALIX_API_KEY غير مضبوط — المصادقة معطّلة (مقبول للتطوير فقط)."
+        )
 
     # محرّك الأعلام الحمراء — حتمي بالكامل، يُحمَّل من app/dictionaries/
     # مرّة واحدة هنا. DictionaryLoader يفشل الإقلاع بوضوح لو كان الكتالوج
@@ -93,6 +113,27 @@ async def lifespan(app: FastAPI):
     app.state.priority_engine = priority_engine
     logger.info("محرّك الأولوية السريرية جاهز (إصدار %s).", priority_engine.version)
 
+    # مسار استخراج الأعراض المستقلّ (LLM + قواعد DDXPlus) — يُحقَن بخدمة
+    # المقابلة أدناه. نفس قاموس symptom_evidence_map يُعاد استخدامه لاحقاً
+    # لبناء symptom_evidence_encoder وevidence_concept_extractor.
+    symptom_evidence_map = DictionaryLoader.load_symptom_evidence_map()
+    symptom_extraction_prompt_builder = SymptomExtractionPromptBuilder(
+        mappings=symptom_evidence_map.get("mappings", ())
+    )
+    llm_symptom_extractor = LLMSymptomExtractor(
+        provider=build_llm_provider(
+            response_schema=symptom_extraction_prompt_builder.schema(),
+            response_validator=validate_symptom_extraction_shape,
+            response_format_hint=SYMPTOM_EXTRACTION_JSON_NUDGE,
+        ),
+        prompt_builder=symptom_extraction_prompt_builder,
+    )
+    rule_symptom_extractor = RuleBasedSymptomExtractor.from_dict(symptom_evidence_map)
+    symptom_extractor = CompositeSymptomExtractor(
+        llm_extractor=llm_symptom_extractor,
+        rule_extractor=rule_symptom_extractor,
+    )
+
     # وكيل المقابلة السريرية (LLM-first): استدعاء واحد لكل دور يُنتج الاستخراج
     # المنظَّم وقرار السؤال معاً. عقد JSON مخصَّص (schema/validator/نص تصحيح)
     # بنفس آلية بقيّة المستهلكين — لا مزوّد مشترك الحالة بين المحرّكات.
@@ -102,7 +143,7 @@ async def lifespan(app: FastAPI):
             response_validator=validate_interview_shape,
             response_format_hint=INTERVIEW_JSON_NUDGE,
         ),
-        prompt_builder=InterviewPromptBuilder(),
+        prompt_builder=InterviewPromptBuilder(red_flag_engine=red_flag_engine),
         store=InMemorySessionStore(
             ttl_seconds=config.SESSION_TTL_SECONDS,
             max_sessions=config.MAX_ACTIVE_SESSIONS,
@@ -110,6 +151,7 @@ async def lifespan(app: FastAPI):
         max_questions=config.MAX_QUESTIONS,
         red_flag_engine=red_flag_engine,
         priority_engine=priority_engine,
+        symptom_extractor=symptom_extractor,
     )
 
 
@@ -123,6 +165,9 @@ async def lifespan(app: FastAPI):
             ),
             prompt_builder=AssessmentExtractionPromptBuilder(),
         ),
+        # C-1 (Phase 1.1): نفس محرّك الأعلام الحمراء الحقيقي المُهيَّأ أعلاه —
+        # يُستخدَم فقط حين يغيب interview_risk بالطلب (انظر توثيق البنّاء).
+        red_flag_engine=red_flag_engine,
     )
 
   
@@ -136,7 +181,7 @@ async def lifespan(app: FastAPI):
     # يربط مفاهيم أدلة DDXPlus (يختارها الـLLM من قائمة مغلقة، لا نص حرّ)
     # برموز E_* قبل مُتنبِّئ ML — انظر توثيق الفجوة بـ symptom_evidence_encoder.py.
     # مستقلّ عمداً عن FeatureEncoder (لا يعدّل مخطّط v1.json "المجمَّد").
-    symptom_evidence_map = DictionaryLoader.load_symptom_evidence_map()
+    # (symptom_evidence_map مُحمَّل أعلاه لبناء symptom_extractor.)
     symptom_evidence_encoder = SymptomEvidenceEncoder.from_dict(symptom_evidence_map)
     app.state.symptom_evidence_encoder = symptom_evidence_encoder
 
@@ -145,7 +190,7 @@ async def lifespan(app: FastAPI):
     evidence_concept_prompt_builder = EvidenceConceptExtractionPromptBuilder(
         concepts=symptom_evidence_encoder.concepts
     )
-    app.state.evidence_concept_extractor = EvidenceConceptExtractor(
+    llm_evidence_extractor = EvidenceConceptExtractor(
         provider=build_llm_provider(
             response_schema=evidence_concept_prompt_builder.schema(),
             response_validator=validate_evidence_concepts_shape,
@@ -153,26 +198,46 @@ async def lifespan(app: FastAPI):
         ),
         prompt_builder=evidence_concept_prompt_builder,
     )
+    rule_evidence_extractor = RuleBasedEvidenceConceptExtractor.from_dict(symptom_evidence_map)
+    app.state.evidence_concept_extractor = CompositeEvidenceConceptExtractor(
+        llm_extractor=llm_evidence_extractor,
+        rule_extractor=rule_evidence_extractor,
+    )
 
     if config.USE_ML_PREDICTOR:
+        logger.info("USE_ML_PREDICTOR=true — تحميل نموذج ML من models/...")
         ml_model, ml_feature_names, ml_label_encoder = ModelLoader.load_all()
         app.state.disease_predictor = MLDiseasePredictor(
             model=ml_model, feature_names=ml_feature_names, label_encoder=ml_label_encoder,
         )
     else:
+        logger.warning(
+            "USE_ML_PREDICTOR=false — المسار القاعدي للمرض (RuleBasedDiseasePredictor). "
+            "للإنتاج: ضع models/ واترك USE_ML_PREDICTOR غير مضبوط أو true."
+        )
         app.state.disease_predictor = RuleBasedDiseasePredictor()
 
- 
-    app.state.urgency_classifier = RuleBasedUrgencyClassifier()
-
-   
-    specialty_lookup = DictionaryLoader.load_specialty_lookup()
-    app.state.specialty_recommender = RuleBasedSpecialtyRecommender(
-        specialty_lookup=specialty_lookup
+    disease_metadata = DictionaryLoader.load_disease_metadata()
+    app.state.urgency_classifier = HybridUrgencyClassifier(
+        base_classifier=RuleBasedUrgencyClassifier(),
+        disease_metadata=disease_metadata,
     )
 
-    app.state.confidence_estimator = RuleBasedConfidenceEstimator()
+    specialty_lookup = DictionaryLoader.load_specialty_lookup()
+    app.state.specialty_recommender = RuleBasedSpecialtyRecommender(
+        specialty_lookup=specialty_lookup,
+        disease_metadata=disease_metadata,
+    )
 
+    app.state.confidence_estimator = HybridConfidenceEstimator(
+        base_estimator=RuleBasedConfidenceEstimator(),
+    )
+
+    rag_retriever = MedicalKnowledgeRetriever(
+        enabled=config.RAG_ENABLED,
+        top_k=config.RAG_TOP_K,
+    )
+    app.state.rag_retriever = rag_retriever
 
     app.state.assessment_explainer = AssessmentExplainer(
         provider=build_llm_provider(
@@ -181,6 +246,7 @@ async def lifespan(app: FastAPI):
             response_format_hint=EXPLANATION_JSON_NUDGE,
         ),
         prompt_builder=AssessmentExplainerPromptBuilder(),
+        rag_retriever=rag_retriever,
     )
 
     # تفريغ الصوت (Whisper) — يُحمَّل مرّة واحدة كجزء من الخدمة الموحّدة.
@@ -208,6 +274,7 @@ async def lifespan(app: FastAPI):
     app.state.specialty_recommender = None
     app.state.confidence_estimator = None
     app.state.assessment_explainer = None
+    app.state.rag_retriever = None
     app.state.red_flag_engine = None
     app.state.priority_engine = None
     app.state.speech_service = None
@@ -226,13 +293,17 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+_cors_origins = [origin.strip() for origin in config.ALLOWED_ORIGINS if origin.strip()]
+_cors_allow_credentials = bool(_cors_origins) and "*" not in _cors_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=os.getenv("ALLOWED_ORIGINS", "*").split(","),
-    allow_credentials=True,
+    allow_origins=_cors_origins or ["*"],
+    allow_credentials=_cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(APIKeyAuthMiddleware)
 
 app.include_router(assessment.router, prefix="/api")
 app.include_router(health.router, prefix="/api")

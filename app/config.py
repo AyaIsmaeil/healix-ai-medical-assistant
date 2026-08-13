@@ -2,8 +2,21 @@
 from dotenv import load_dotenv
 from pathlib import Path
 
-# تحميل متغيرات البيئة
-load_dotenv()
+# تحميل متغيرات البيئة من جذر المستودع (ملف واحد: .env)
+REPO_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(REPO_ROOT / ".env")
+
+
+def _resolve_use_ml_predictor() -> bool:
+    """تفعيل ML تلقائياً عند وجود النموذج المدرَّب — إلا إذا USE_ML_PREDICTOR=false."""
+    env_val = os.getenv("USE_ML_PREDICTOR", "").strip().lower()
+    if env_val == "true":
+        return True
+    if env_val == "false":
+        return False
+    models_dir = REPO_ROOT / "models"
+    required = ("xgboost_model.pkl", "feature_names.json", "label_encoder.joblib")
+    return all((models_dir / name).exists() for name in required)
 
 # مسارات المشروع
 BASE_DIR = Path(__file__).parent
@@ -17,6 +30,25 @@ class Config:
     LOG_LEVEL = os.getenv("LOG_LEVEL", "info")
 
     ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:8000").split(",")
+
+    # ------------------------------------------------------------------
+    # أمان الـ API
+    # ------------------------------------------------------------------
+    # عند ضبط HEALIX_API_KEY: كل المسارات (عدا /api/health و/docs) تتطلّب
+    # رأس X-API-Key مطابقاً. في production يُفرض وجود المفتاح عند الإقلاع.
+    HEALIX_API_KEY = os.getenv("HEALIX_API_KEY", "").strip()
+
+    @property
+    def API_KEY_ENABLED(self) -> bool:
+        return bool(self.HEALIX_API_KEY)
+
+    # قائمة بيضاء اختيارية لم hosts تنزيل الصوت (فارغة = أي host عام بعد
+    # فحص SSRF). مثال: "cdn.example.com,storage.example.com"
+    ALLOWED_AUDIO_URL_HOSTS = [
+        host.strip().lower()
+        for host in os.getenv("ALLOWED_AUDIO_URL_HOSTS", "").split(",")
+        if host.strip()
+    ]
 
     # ------------------------------------------------------------------
     # وكيل المقابلة السريرية (Clinical Interview) + مزوّد الـ LLM
@@ -73,7 +105,13 @@ class Config:
     # ------------------------------------------------------------------
     # عند التفعيل: MLDiseasePredictor (models/) يُحقَن بدل RuleBasedDiseasePredictor
     # القاعدي — بلا حذف أو تعديل الأخير، فقط تفرّع بـmain.py.
-    USE_ML_PREDICTOR = os.getenv("USE_ML_PREDICTOR", "false").lower() == "true"
+    USE_ML_PREDICTOR = _resolve_use_ml_predictor()
+
+    # ------------------------------------------------------------------
+    # RAG — استرجاع معرفة PubMed (هجين مع القواعد + ML)
+    # ------------------------------------------------------------------
+    RAG_ENABLED = os.getenv("RAG_ENABLED", "true").lower() == "true"
+    RAG_TOP_K = int(os.getenv("RAG_TOP_K", "3"))
 
 class DevelopmentConfig(Config):
     """إعدادات بيئة التطوير"""
@@ -84,6 +122,13 @@ class ProductionConfig(Config):
     """إعدادات بيئة الإنتاج"""
     RELOAD = False
     LOG_LEVEL = "warning"
+
+    def __init__(self) -> None:
+        super().__init__()
+        if not self.HEALIX_API_KEY:
+            raise RuntimeError(
+                "HEALIX_API_KEY is required when ENV=production."
+            )
 
 # اختيار الإعدادات حسب البيئة
 ENV = os.getenv("ENV", "development")

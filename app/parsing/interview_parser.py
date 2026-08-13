@@ -39,7 +39,7 @@ _FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 # يُمرَّر كـresponse_format_hint عند بناء المزوّد. لا يحتوي أي بيانات مريض.
 INTERVIEW_JSON_NUDGE = (
     "ردّك السابق لم يكن JSON صالحاً بالعقد المطلوب. أعد JSON واحداً فقط، دون "
-    'أي نصّ خارجه، بالشكل: {"chief_complaint": null, "symptoms": [], '
+    'أي نصّ خارجه، بالشكل: {"chief_complaint": null, '
     '"severity": null, "duration": null, "body_location": null, '
     '"medications": [], "allergies": [], "chronic_conditions": [], '
     '"family_history": [], "missing_fields": [], "finished": false, '
@@ -192,7 +192,7 @@ def parse_interview_turn(text: str) -> InterviewTurnOutput:
     return InterviewTurnOutput(
         decision=decision,
         record=record,
-        symptoms=_parse_symptoms(data),
+        symptoms=[],  # الأعراض تُستخرَج بمسار SymptomExtractor المستقلّ
     )
 
 

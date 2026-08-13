@@ -11,7 +11,7 @@ from fastapi import Request
 from app.domain.feature_encoder import FeatureEncoder
 from app.domain.feature_validator import FeatureValidator
 from app.domain.symptom_evidence_encoder import SymptomEvidenceEncoder
-from app.services.evidence_concept_extractor import EvidenceConceptExtractor
+from app.services.composite_evidence_concept_extractor import CompositeEvidenceConceptExtractor
 from app.domain.ports import (
     AssessmentExplainerPort,
     ConfidenceEstimatorPort,
@@ -78,8 +78,8 @@ def get_symptom_evidence_encoder(request: Request) -> SymptomEvidenceEncoder:
     return encoder
 
 
-def get_evidence_concept_extractor(request: Request) -> EvidenceConceptExtractor:
-    """إرجاع مُستخلِص مفاهيم الأدلة (LLM بعقد enum مغلق) المُهيّأ عند بدء التشغيل."""
+def get_evidence_concept_extractor(request: Request) -> CompositeEvidenceConceptExtractor:
+    """إرجاع مُستخلِص مفاهيم الأدلة الهجين (LLM + قواعد) المُهيّأ عند بدء التشغيل."""
     extractor = getattr(request.app.state, "evidence_concept_extractor", None)
     if extractor is None:
         raise AssessmentError("مُستخلِص مفاهيم الأدلة غير مُهيّأ.")

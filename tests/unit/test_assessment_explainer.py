@@ -180,8 +180,10 @@ def test_valid_json_is_parsed_and_returned():
     provider = _json_provider(_VALID_PAYLOAD)
     result = _explain(provider)
     assert provider.calls == 1
-    assert result.summary == _VALID_PAYLOAD["summary"]
-    assert result.recommendation == _VALID_PAYLOAD["recommendation"]
+    # الملخّص والتوصية حتميان — LLM يُنتج medical_reasoning فقط
+    assert "23" in result.summary or "صداع" in result.summary
+    assert result.medical_reasoning == _VALID_PAYLOAD["medical_reasoning"]
+    assert "Neurology" in result.summary or "Neurology" in result.recommendation
 
 
 def test_prompt_never_contains_raw_messages():

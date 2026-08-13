@@ -72,12 +72,13 @@ from app.schemas.assessment import (
     ClinicalFeatureSetOut,
     ConfidenceAssessmentOut,
     DiseasePredictionResultOut,
+    RagSourceOut,
     SpecialtyRecommendationOut,
     UrgencyAssessmentOut,
 )
 from app.domain.symptom_evidence_encoder import SymptomEvidenceEncoder
 from app.services.assessment_feature_builder import AssessmentFeatureBuilder
-from app.services.evidence_concept_extractor import EvidenceConceptExtractor
+from app.services.composite_evidence_concept_extractor import CompositeEvidenceConceptExtractor
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["محرك التقييم"])
@@ -101,7 +102,7 @@ async def run_assessment(
     validator: FeatureValidator = Depends(get_feature_validator),
     encoder: FeatureEncoder = Depends(get_feature_encoder),
     symptom_evidence_encoder: SymptomEvidenceEncoder = Depends(get_symptom_evidence_encoder),
-    evidence_concept_extractor: EvidenceConceptExtractor = Depends(get_evidence_concept_extractor),
+    evidence_concept_extractor: CompositeEvidenceConceptExtractor = Depends(get_evidence_concept_extractor),
     predictor: DiseasePredictorPort = Depends(get_disease_predictor),
     urgency_classifier: UrgencyClassifierPort = Depends(get_urgency_classifier),
     specialty_recommender: SpecialtyRecommenderPort = Depends(get_specialty_recommender),
@@ -126,6 +127,17 @@ async def run_assessment(
         else None
     )
 
+    # نتيجة فحص الأعلام الحمراء المُحسوبة فعلاً بالمقابلة (RedFlagEngine)،
+    # إن أرسلها العميل. غيابها (None) لا يعني False بعد الآن (C-1، Phase 1.1)
+    # — البنّاء (``AssessmentFeatureBuilder._resolve_has_red_flag``) يُشغّل
+    # حينها نفس RedFlagEngine الحقيقي مباشرة على raw_messages، فتبقى الصحّة
+    # مستقلّة عن وصول هذا الحقل من العميل أصلاً.
+    known_has_red_flag = (
+        request.interview_risk.emergency_detected
+        if request.interview_risk is not None
+        else None
+    )
+
     # استخراج قاعدي سريع لكنه قد يستدعي الـLLM (شبكة) — نُشغّله خارج حلقة الأحداث.
     loop = asyncio.get_running_loop()
     try:
@@ -133,7 +145,7 @@ async def run_assessment(
             None,
             partial(
                 builder.build, request.session_id, request.raw_messages, symptoms,
-                interview_record,
+                interview_record, known_has_red_flag,
             ),
         )
         features = await loop.run_in_executor(None, partial(validator.validate, features))
@@ -145,12 +157,17 @@ async def run_assessment(
         # E_* عبر symptom_evidence_encoder.py. المُتنبِّئ القاعدي يتجاهل
         # هذا الإغناء تماماً (لا يقرأ إلا الحقول التسعة المعرَّفة بمخطّطه).
         evidence_concepts = await loop.run_in_executor(
-            None, partial(evidence_concept_extractor.extract, request.raw_messages)
+            None,
+            partial(
+                evidence_concept_extractor.extract,
+                request.raw_messages,
+                [s.text for s in request.symptoms if not s.negated],
+            ),
         )
         encoded.features.update(symptom_evidence_encoder.encode(evidence_concepts))
         prediction_result = await loop.run_in_executor(None, partial(predictor.predict, encoded))
         urgency = await loop.run_in_executor(
-            None, partial(urgency_classifier.classify, features)
+            None, partial(urgency_classifier.classify, features, prediction_result)
         )
         specialty = await loop.run_in_executor(
             None, partial(specialty_recommender.recommend, features, prediction_result)
@@ -171,7 +188,7 @@ async def run_assessment(
         explanation = await loop.run_in_executor(
             None,
             partial(
-                explainer.explain,
+                explainer.explain_hybrid,
                 features,
                 prediction_result,
                 urgency,
@@ -191,10 +208,9 @@ async def run_assessment(
         ) from exc
 
     return AssessmentResponse(
+        hybrid_mode="rules_ml_rag" if explanation.rag_enabled else "rules_ml",
         features=ClinicalFeatureSetOut.model_validate(asdict(features)),
         predictions=DiseasePredictionResultOut.model_validate(asdict(prediction_result)),
-        # تحويل صريح لـ.value (لا asdict/model_validate) — نفس أسلوب تسلسل
-        # UrgencyLevel(str, Enum) الآمن، بدل الاعتماد الضمني على وراثة str.
         urgency=UrgencyAssessmentOut(
             level=urgency.level.value,
             score=urgency.score,
@@ -211,9 +227,22 @@ async def run_assessment(
             explanation=confidence.explanation,
         ),
         explanation=AssessmentExplanationOut(
-            summary=explanation.summary,
-            medical_reasoning=explanation.medical_reasoning,
-            recommendation=explanation.recommendation,
-            disclaimer=explanation.disclaimer,
+            summary=explanation.explanation.summary,
+            medical_reasoning=explanation.explanation.medical_reasoning,
+            recommendation=explanation.explanation.recommendation,
+            disclaimer=explanation.explanation.disclaimer,
         ),
+        rag_sources=[
+            RagSourceOut(
+                doc_id=source.doc_id,
+                pmid=source.pmid,
+                disease_name=source.disease_name,
+                medical_specialty=source.medical_specialty,
+                triage_level=source.triage_level,
+                snippet=source.snippet,
+                pubmed_url=source.pubmed_url,
+                relevance_score=source.relevance_score,
+            )
+            for source in explanation.rag_sources
+        ],
     )

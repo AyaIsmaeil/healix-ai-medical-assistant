@@ -7,12 +7,10 @@ Healix - ML Disease Predictor (Phase 3.4, مسار موازٍ)
 محقونة بالمُنشئ (نفس نمط ``FeatureEncoder(schema=...)``)، محمَّلة سلفاً عبر
 ``infrastructure.model_loader.ModelLoader``.
 
-⚠️ فجوة معماريّة مُكتشَفة وموثَّقة (بنفس روح ``rule_based_predictor.py``):
-مخطّط ترميز الميزات الحالي (v1.json) لا يُصدِّر أي عمود برمز ``E_*`` — هذه
-الأعمدة (208 ثنائي + 764 one-hot/multi-hot من DDXPlus) لا تظهر إطلاقاً في
-``EncodedFeatures.features`` حتى يُضاف استخراجها بمخطّط مستقبلي (v2.json).
-لذا هذا المُتنبِّئ حالياً **يُعيد نتيجة فارغة دائماً** بلا خطأ — ليس عطلاً، بل
-سلوك مُتوقَّع وموثَّق حتى تُسَدّ الفجوة، بدل اختلاق قيم افتراضية لأدلة غائبة.
+رموز ``E_*`` لا تُنتَج من ``FeatureEncoder`` (v1.json) مباشرة — تُدمَج في
+``routes/assessment.py`` بعد اختيار مفاهيم الأدلة (LLM + قواعد حتمية) وترميزها
+عبر ``SymptomEvidenceEncoder``. غياب أي ``E_*`` مطابق يُعيد نتيجة فارغة بلا
+خطأ (لا استنتاج على متجه صفري).
 """
 
 from __future__ import annotations
@@ -52,9 +50,11 @@ class MLDiseasePredictor:
 
         vector, matched_evidence_count = self._build_vector(values)
         if matched_evidence_count == 0:
-            # لا رموز E_* مطابقة (متوقَّع حالياً — انظر توثيق الفجوة أعلى الملف)
-            # — نتيجة فارغة بلا خطأ، بدل استنتاج على متجه صفري لا معنى له.
-            return DiseasePredictionResult(predictions=[], predictor_version=self.predictor_version)
+            return DiseasePredictionResult(
+                predictions=[],
+                predictor_version=self.predictor_version,
+                matched_evidence_count=0,
+            )
 
         try:
             proba = self._model.predict_proba(vector.reshape(1, -1))[0]
@@ -62,7 +62,11 @@ class MLDiseasePredictor:
             raise InferenceError(f"فشل استنتاج MLDiseasePredictor: {exc}") from exc
 
         predictions = self._top_predictions(proba, matched_evidence_count)
-        return DiseasePredictionResult(predictions=predictions, predictor_version=self.predictor_version)
+        return DiseasePredictionResult(
+            predictions=predictions,
+            predictor_version=self.predictor_version,
+            matched_evidence_count=matched_evidence_count,
+        )
 
     # ------------------------------------------------------------------
     # بناء متجه الميزات
