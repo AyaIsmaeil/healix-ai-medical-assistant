@@ -159,12 +159,14 @@ def test_thunderclap_requires_quality_descriptor(engine):
 
 
 # ----------------------------------------------------------------------
-# ٨) حمى الرضيع — المستوى urgent لا immediate
+# ٨) حمى الرضيع — المستوى immediate (NICE NG143: fever >=38°C under 3
+#    months is the highest/"red" urgency tier — re-graded from urgent,
+#    كان تقييماً ناقصاً مقارنةً بالمصدر المُستشهَد به، انظر evidence_matrix.md RF-008)
 # ----------------------------------------------------------------------
-def test_infant_fever_fires_at_urgent(engine):
+def test_infant_fever_fires_at_immediate(engine):
     a = engine.evaluate_raw_text(["ابني عمره شهرين وعنده حرارة"])
     assert "HEALIX_REDFLAG_0008" in fired(a)
-    assert a.risk_level is RiskLevel.URGENT
+    assert a.risk_level is RiskLevel.IMMEDIATE
     assert a.is_emergency
 
 
@@ -309,3 +311,74 @@ def test_l0_alone_detects_acs_phrasings(engine, text):
     assessment = engine.evaluate_raw_text([text])
     assert "HEALIX_REDFLAG_0001" in fired(assessment)
     assert assessment.risk_level is RiskLevel.IMMEDIATE
+
+
+# ----------------------------------------------------------------------
+# C-3 (Phase 1.1 — تصحيح دلالي): استعلام أولوية الأسئلة — قراءة فقط، لا
+# يُطلق أي قاعدة. الاسم القديم ``is_potential_trigger`` حُذف: كان يكتفي
+# بمطابقة مجموعة واحدة فقط من ``all_of`` قاعدة قد تتطلّب أكثر من مجموعة معاً
+# (خطأ مُثبَت بتدقيق Phase 0) — ``is_red_flag_pathway_evidence`` يتطلّب
+# تحقّق **كل** مجموعات ``all_of`` معاً، أو عضواً من ``any_of`` حين لا توجد
+# ``all_of`` إطلاقاً (مثال FAST).
+# ----------------------------------------------------------------------
+def test_chest_pain_is_pathway_evidence_single_all_of_group(engine):
+    """ألم الصدر: شرط all_of وحيد لـHEALIX_REDFLAG_0001 — يتحقّق بهذا النصّ
+    وحده تلقائياً (Case 6)."""
+    assert engine.is_red_flag_pathway_evidence("ألم صدر") is True
+
+
+def test_headache_alone_is_not_pathway_evidence_missing_thunderclap(engine):
+    """Case 1 — الصداع وحده لا يكفي: HEALIX_REDFLAG_0007 يتطلّب headache
+    و thunderclap_quality معاً؛ مطابقة headache فقط لا تعني أنّ القاعدة على
+    مسار الإطلاق. هذا هو الخطأ الدلالي الذي أصلحه Phase 1.1 تحديداً — كان
+    الاستعلام القديم يعيد True هنا خطأً."""
+    assert engine.is_red_flag_pathway_evidence("عندي صداع") is False
+
+
+def test_thunderclap_headache_is_pathway_evidence_both_groups_present(engine):
+    """Case 2 — نصّ واحد يحمل كلا مجموعتَي all_of معاً (headache +
+    thunderclap_quality) يجب أن يُعَدّ دليل مسار فعلياً."""
+    assert engine.is_red_flag_pathway_evidence(
+        "صداع مفاجئ وشديد جدًا، أسوأ صداع بحياتي"
+    ) is True
+
+
+def test_fever_alone_is_not_pathway_evidence_missing_infant_context(engine):
+    """Case 3 — الحرارة وحدها لا تكفي: HEALIX_REDFLAG_0008 يتطلّب
+    infant_context و fever معاً؛ لا سياق رضيع هنا."""
+    assert engine.is_red_flag_pathway_evidence("عندي حرارة") is False
+
+
+def test_bleeding_alone_is_pathway_evidence_via_standalone_rule_not_pregnancy(engine):
+    """Case 4 — 'نزيف' وحدها **تبقى** True، لكن بسبب قاعدة مستقلّة حقيقية
+    (HEALIX_REDFLAG_0005: all_of=['bleeding'] وحدها) لا بسبب قاعدة الحمل
+    (HEALIX_REDFLAG_0006 تتطلّب bleeding+pregnancy_context معاً). الاختبار
+    التالي يعزل قاعدة الحمل تحديداً لإثبات أنها لا تُساهم بالخطأ القديم."""
+    assert engine.is_red_flag_pathway_evidence("عندي نزيف") is True
+
+
+def test_pregnancy_context_alone_is_not_pathway_evidence_missing_bleeding(engine):
+    """Case 4 (عزل قاعدة الحمل تحديداً) — 'أنا حامل' وحدها بلا نزيف لا يجوز
+    أن تُعَدّ دليل مسار لـHEALIX_REDFLAG_0006 (يتطلّب bleeding أيضاً)، ولا
+    تلمس أي قاعدة أخرى."""
+    assert engine.is_red_flag_pathway_evidence("انا حامل") is False
+
+
+def test_facial_droop_is_pathway_evidence_any_of_only_rule(engine):
+    """Case 5 — HEALIX_REDFLAG_0002 (FAST) بلا all_of إطلاقاً؛ عضو واحد من
+    any_of (تدلّي الوجه) كافٍ — كانت الآلية القديمة تُغفل هذه الحالة كلياً
+    لأنّها فحصت all_of فقط."""
+    assert engine.is_red_flag_pathway_evidence("وجهي مايل") is True
+
+
+def test_unrelated_text_is_not_pathway_evidence(engine):
+    assert engine.is_red_flag_pathway_evidence("عندي رشح خفيف") is False
+
+
+def test_pathway_evidence_query_does_not_fire_any_rule():
+    """قراءة فقط: لا يُنتج RedFlagAssessment ولا يُغيّر حالة المحرّك."""
+    engine = RedFlagEngine.from_dict(DictionaryLoader.load_red_flags())
+    engine.is_red_flag_pathway_evidence("ألم صدر")
+    # نفس المحرّك يُقيَّم بعدها بشكل طبيعي تماماً — لا أثر جانبي.
+    assessment = engine.evaluate_raw_text(["عندي رشح خفيف"])
+    assert assessment.risk_level is RiskLevel.NONE

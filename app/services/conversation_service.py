@@ -14,11 +14,19 @@ from app.domain.conversation import (
     Symptom,
 )
 from app.domain.ports import LLMProvider, SessionStore
+from app.domain.interview_triage import should_short_circuit_interview
+from app.domain.slot_answer_validator import (
+    SlotAnswerStatus,
+    apply_slot_answer_to_record,
+    validate_slot_answer,
+)
+from app.domain.symptom_normalizer import normalize_symptoms_for_storage
 from app.domain.red_flag_engine import RedFlagEngine, normalize_arabic
 from app.domain.red_flags import RedFlagAssessment
 from app.exceptions import LLMProviderError
 from app.parsing.interview_parser import parse_interview_turn
 from app.prompts.interview_builder import InterviewPromptBuilder
+from app.services.composite_symptom_extractor import CompositeSymptomExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -38,11 +46,13 @@ class ConversationService:
         max_questions: int = 8,
         red_flag_engine: Optional[RedFlagEngine] = None,
         priority_engine: Optional[ClinicalPriorityEngine] = None,
+        symptom_extractor: Optional[CompositeSymptomExtractor] = None,
     ) -> None:
         self._provider = provider
         self._prompts = prompt_builder
         self._store = store
         self._max_questions = int(max_questions)
+        self._symptom_extractor = symptom_extractor
         # اختياري بالتوقيع للتوافق الخلفي مع الاختبارات القائمة، لكنّه
         # مُحقَن دائماً في الإنتاج (main.py). غيابه يعني تعطّل كشف الطوارئ،
         # ولذلك يُسجَّل تحذيراً صريحاً بدل المرور صامتاً.
@@ -79,15 +89,30 @@ class ConversationService:
         if state.session_restarted:
             logger.info("جلسة غير معروفة أو منتهية (%s) — بدء سجلّ جديد.", session_id)
 
-        # 1) الرسالة الحالية هي ردّ المريض على سؤال الدور السابق — نمسح التعليق.
-        #    لا نُسند نصّها إلى خانة بعينها (قد لا يُجيب المريض عن السؤال مباشرةً)؛
-        #    المعلومة الكاملة تُحفظ في raw_messages وتصل للـ LLM كما هي.
-        state.pending_slot = None
+        # 1) التحقّق الحتمي من إجابة الخانة المُطروحة قبل مسحها.
+        pending_slot = state.pending_slot
 
         # 2) حفظ الرسالة الخام كاملةً (سياق كامل للـ LLM، لا يُفقد أي شيء).
         state.record_patient_message(text)
 
         state.turn_count += 1
+
+        if pending_slot:
+            slot_result = validate_slot_answer(pending_slot, text)
+            if slot_result.status == SlotAnswerStatus.NEEDS_CLARIFICATION:
+                state.pending_slot = pending_slot
+                self._store.save(state)
+                return state, InterviewDecision(
+                    finished=False,
+                    next_slot=pending_slot,
+                    question=(
+                        slot_result.clarification_question
+                        or "يرجى توضيح إجابتك."
+                    ),
+                )
+            apply_slot_answer_to_record(state.record, pending_slot, slot_result)
+
+        state.pending_slot = None
 
         # 3) [L0] فحص الطوارئ الحتمي **قبل** الـLLM وبمعزل عن الشبكة.
         #    هذه الخاصية المعمارية المركزية: حتى لو انهار المزوّد تماماً،
@@ -95,7 +120,10 @@ class ConversationService:
         #    خلف اعتماد شبكي.
         l0 = self._screen_raw(state)
 
-        # 4) [L1] استدعاء واحد: استخراج منظَّم + قرار الدور.
+        # 4) [L1a] استخراج الأعراض — مسار مستقلّ (SymptomExtractor + DDXPlus catalog).
+        extracted_symptoms = self._extract_symptoms(state)
+
+        # 5) [L1b] استدعاء واحد: استخراج السجل المنظَّم + قرار الدور (بلا أعراض).
         #    يُستدعى حتى عند بلوغ سقف الأسئلة (حيث سيُفرَض الإنهاء لاحقاً):
         #    رسالة المريض الأخيرة قد تحمل معلومات طبية مهمّة، وتخطّي الاستدعاء
         #    كان سيُسقطها من السجل نهائياً.
@@ -120,10 +148,10 @@ class ConversationService:
             # كانت قبل الدور، وإعادة المحاولة تُسجّل الرسالة مرّة واحدة.
             raise
 
-        # 5) التحقّق الحتمي من الشواهد قبل الدمج — لا يُمنَح النموذج صفة
+        # 6) التحقّق الحتمي من الشواهد قبل الدمج — لا يُمنَح النموذج صفة
         #    "مؤكَّد" بتصريحه عن نفسه، بل بوجود شاهده في كلام المريض فعلاً.
-        verified = self._verify_symptoms(turn.symptoms, state)
-        state.add_symptoms(verified)
+        verified = self._verify_symptoms(extracted_symptoms, state)
+        state.add_symptoms(normalize_symptoms_for_storage(verified))
         state.record.merge(
             turn.record,
             turn_number=state.turn_count,
@@ -211,7 +239,7 @@ class ConversationService:
 
         item = clinical.next_missing(
             state.symptoms, " ".join(state.raw_messages), state.asked_slots,
-            primary=primary,
+            primary=primary, red_flag_engine=self._red_flags,
         )
         if item is None:
             return None
@@ -347,6 +375,13 @@ class ConversationService:
 
         return provenance
 
+    def _extract_symptoms(self, state: ConversationState) -> List[Symptom]:
+        """استخراج الأعراض عبر SymptomExtractor (LLM + قواعد DDXPlus)."""
+        if self._symptom_extractor is None:
+            return []
+        known = [s.text for s in state.symptoms if not s.negated]
+        return self._symptom_extractor.extract(state.raw_messages, known)
+
     # استدعاء الـLLM
     def _run_turn(self, state: ConversationState) -> InterviewTurnOutput:
         """استدعاء المزوّد مرّة واحدة وتحليل العقد الموحّد."""
@@ -378,6 +413,13 @@ class ConversationService:
             )
             return InterviewDecision(finished=True)
 
+        # [T1] إنهاء مبكر عند اكتمال بيانات triage حرجة (NICE/ESC chest pain).
+        if should_short_circuit_interview(state):
+            logger.info(
+                "اكتمال بيانات triage حرجة — إنهاء المقابلة وتسليم التقييم."
+            )
+            return InterviewDecision(finished=True)
+
         # حدّ أقصى للأسئلة — حماية من الحلقات اللانهائية.
         if len(state.asked_questions) >= self._max_questions:
             logger.info("بلوغ الحد الأقصى للأسئلة — إنهاء المقابلة.")
@@ -395,7 +437,7 @@ class ConversationService:
         if decision.finished and not any(not s.negated for s in state.symptoms):
             item = clinical.next_missing(
                 state.symptoms, " ".join(state.raw_messages), state.asked_slots,
-                primary=state.primary_complaint,
+                primary=state.primary_complaint, red_flag_engine=self._red_flags,
             )
             if item is not None:
                 target, question = item

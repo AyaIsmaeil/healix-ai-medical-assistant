@@ -319,3 +319,110 @@ def test_default_path_loads_real_project_specialty_lookup():
     lookup = DictionaryLoader.load_specialty_lookup()
     assert lookup["influenza"]["specialty"] == "Family Medicine"
     assert lookup["pregnancy"]["specialty"] == "Obstetrics and Gynecology"
+
+
+# ----------------------------------------------------------------------
+# load_disease_metadata (ADR-04)
+# ----------------------------------------------------------------------
+def _write_disease_metadata_yaml(tmp_path, text):
+    path = tmp_path / "disease_metadata.yaml"
+    path.write_text(text, encoding="utf-8")
+    return path
+
+
+def test_loads_valid_disease_metadata(tmp_path):
+    path = _write_disease_metadata_yaml(
+        tmp_path,
+        "diseases:\n"
+        "  Influenza:\n"
+        "    icd10: j11.1\n"
+        "    severity: 3\n"
+        "    specialty: Infectious Disease\n"
+        "    requires_review: false\n"
+        "    review_reason: null\n",
+    )
+    data = DictionaryLoader.load_disease_metadata(path)
+    assert data["diseases"]["Influenza"]["specialty"] == "Infectious Disease"
+
+
+def test_disease_metadata_root_not_object_raises(tmp_path):
+    path = _write_disease_metadata_yaml(tmp_path, "- not an object\n")
+    with pytest.raises(FeatureValidationError):
+        DictionaryLoader.load_disease_metadata(path)
+
+
+def test_disease_metadata_missing_diseases_key_raises(tmp_path):
+    path = _write_disease_metadata_yaml(tmp_path, "version: '1.0.0'\n")
+    with pytest.raises(FeatureValidationError):
+        DictionaryLoader.load_disease_metadata(path)
+
+
+def test_disease_metadata_empty_specialty_raises(tmp_path):
+    path = _write_disease_metadata_yaml(
+        tmp_path,
+        "diseases:\n"
+        "  X:\n"
+        "    icd10: A00\n"
+        "    specialty: ''\n"
+        "    requires_review: false\n"
+        "    review_reason: null\n",
+    )
+    with pytest.raises(FeatureValidationError):
+        DictionaryLoader.load_disease_metadata(path)
+
+
+def test_disease_metadata_null_specialty_raises(tmp_path):
+    path = _write_disease_metadata_yaml(
+        tmp_path,
+        "diseases:\n"
+        "  X:\n"
+        "    icd10: A00\n"
+        "    specialty: null\n"
+        "    requires_review: false\n"
+        "    review_reason: null\n",
+    )
+    with pytest.raises(FeatureValidationError):
+        DictionaryLoader.load_disease_metadata(path)
+
+
+def test_disease_metadata_requires_review_without_reason_raises(tmp_path):
+    """القاعدة الحاسمة: requires_review=true بلا review_reason موثَّق ممنوع."""
+    path = _write_disease_metadata_yaml(
+        tmp_path,
+        "diseases:\n"
+        "  X:\n"
+        "    icd10: A00\n"
+        "    specialty: General Medicine\n"
+        "    requires_review: true\n"
+        "    review_reason: null\n",
+    )
+    with pytest.raises(FeatureValidationError):
+        DictionaryLoader.load_disease_metadata(path)
+
+
+def test_disease_metadata_requires_review_bool_type_enforced(tmp_path):
+    path = _write_disease_metadata_yaml(
+        tmp_path,
+        "diseases:\n"
+        "  X:\n"
+        "    icd10: A00\n"
+        "    specialty: General Medicine\n"
+        "    requires_review: 'yes'\n"
+        "    review_reason: null\n",
+    )
+    with pytest.raises(FeatureValidationError):
+        DictionaryLoader.load_disease_metadata(path)
+
+
+def test_default_path_loads_real_project_disease_metadata():
+    """يضمن أنّ الملف الفعلي app/dictionaries/disease_metadata.yaml موجود
+    وصالح البنية، ويغطّي الأمراض الـ٤٩ كاملة بصفر specialty فارغ."""
+    data = DictionaryLoader.load_disease_metadata()
+    diseases = data["diseases"]
+    assert len(diseases) == 49
+    for name, entry in diseases.items():
+        assert entry["specialty"], f"{name}: specialty فارغ بالملف الفعلي"
+    assert diseases["Sarcoidosis"]["requires_review"] is True
+    assert diseases["Sarcoidosis"]["specialty"] == "General Medicine"
+    assert diseases["Unstable angina"]["requires_review"] is False
+    assert diseases["Unstable angina"]["specialty"] == "Cardiology"

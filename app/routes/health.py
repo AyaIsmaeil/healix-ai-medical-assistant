@@ -16,6 +16,7 @@ async def health_check(request: Request):
     state = request.app.state
     speech = getattr(state, "speech_service", None)
     conv = getattr(state, "conversation_service", None)
+    rag = getattr(state, "rag_retriever", None)
 
     speech_ready = bool(speech and getattr(speech, "is_ready", False))
 
@@ -46,5 +47,9 @@ async def health_check(request: Request):
             "details": llm_health,
         },
         "whisper": {"ready": speech_ready},
+        "rag": {
+            "enabled": bool(getattr(rag, "_enabled", False)) if rag is not None else False,
+            "ready": rag.is_ready() if rag is not None else False,
+        },
         "llm_provider": provider_name,
     }

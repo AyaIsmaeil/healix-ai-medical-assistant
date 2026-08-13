@@ -15,7 +15,9 @@ from app.config import (
     MAX_AUDIO_FILE_SIZE_MB,
     WHISPER_LANGUAGE,
     WHISPER_MODEL,
+    config,
 )
+from app.security.url_validation import validate_outbound_http_url
 from app.exceptions import (
     AudioDownloadError,
     AudioNotFoundError,
@@ -112,6 +114,12 @@ class SpeechToTextService:
         return path
 
     def _download_audio(self, audio_url: str) -> Path:
+        validate_outbound_http_url(
+            audio_url,
+            allowed_hosts=config.ALLOWED_AUDIO_URL_HOSTS or None,
+            purpose="download",
+        )
+
         parsed_url = urlparse(audio_url)
         extension = Path(parsed_url.path).suffix.lower()
 

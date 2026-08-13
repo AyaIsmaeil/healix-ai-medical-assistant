@@ -20,6 +20,17 @@ from typing import Any, Dict, Iterator, Optional
 import numpy as np
 
 
+def balanced_sample_weights(y: np.ndarray) -> np.ndarray:
+    """Per-row weights equivalent to sklearn ``class_weight='balanced'``.
+
+    Used for XGBoost/LightGBM/CatBoost where the constructor has no
+    ``class_weight`` parameter matching sklearn's API.
+    """
+    from sklearn.utils.class_weight import compute_sample_weight
+
+    return compute_sample_weight("balanced", y)
+
+
 def set_global_seed(seed: int) -> None:
     """Seed every RNG this package touches, for reproducible baselines."""
     random.seed(seed)

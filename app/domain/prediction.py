@@ -12,7 +12,7 @@ dataclasses خالصة فقط، بنفس فلسفة ``domain.assessment`` و``do
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 
 
 @dataclass
@@ -31,3 +31,4 @@ class DiseasePredictionResult:
 
     predictions: List[DiseasePrediction] = field(default_factory=list)
     predictor_version: str = ""
+    matched_evidence_count: Optional[int] = None

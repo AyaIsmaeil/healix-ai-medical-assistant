@@ -15,6 +15,7 @@ from app.domain.clinical_record import (
     FactProvenance,
     FactSource,
 )
+from app.domain.conversation import Symptom
 from app.domain.ports import Completion
 from app.infrastructure.session_store import InMemorySessionStore
 from app.prompts.interview_builder import InterviewPromptBuilder
@@ -39,9 +40,32 @@ class Scripted:
         return Completion(json.dumps(payload, ensure_ascii=False), model="scripted")
 
 
+class ScriptedSymptomExtractor:
+    """بديل اختباري لـ CompositeSymptomExtractor — أعراض (مع شواهدها) محدّدة
+    مسبقاً بالترتيب. الأعراض تُستخرَج بمسار مستقلّ عن ردّ الـLLM هنا، فلا
+    تصل عبر حقل ``symptoms`` داخل ``turn()``."""
+
+    def __init__(self, batches=None):
+        self._batches = batches or []
+        self._i = 0
+
+    def extract(self, raw_messages, known_symptoms=None):
+        if self._i >= len(self._batches):
+            return []
+        batch = self._batches[self._i]
+        self._i += 1
+        return [
+            Symptom(
+                text=s["text"], negated=s.get("negated", False),
+                confidence=s.get("confidence", 0.9), evidence=s.get("evidence"),
+            )
+            for s in batch
+        ]
+
+
 def turn(**over):
     base = {
-        "chief_complaint": None, "symptoms": [], "severity": None,
+        "chief_complaint": None, "severity": None,
         "duration": None, "body_location": None, "medications": [],
         "allergies": [], "chronic_conditions": [], "family_history": [],
         "missing_fields": [], "finished": False,
@@ -51,11 +75,12 @@ def turn(**over):
     return base
 
 
-def service(payloads):
+def service(payloads, symptom_batches=None):
     return ConversationService(
         provider=Scripted(payloads),
         prompt_builder=InterviewPromptBuilder(),
         store=InMemorySessionStore(),
+        symptom_extractor=ScriptedSymptomExtractor(symptom_batches),
     )
 
 
@@ -104,7 +129,9 @@ def test_contradictions_are_queryable():
 # W4 — إثبات المصدر
 # ----------------------------------------------------------------------
 def test_verified_evidence_marks_symptom_as_patient_stated():
-    svc = service([turn(symptoms=[sym("صداع", evidence="عندي صداع شديد")])])
+    svc = service([turn()], symptom_batches=[
+        [sym("صداع", evidence="عندي صداع شديد")],
+    ])
     state, _ = svc.handle_message("عندي صداع شديد من امبارح", None)
 
     symptom = state.symptoms[0]
@@ -114,9 +141,9 @@ def test_verified_evidence_marks_symptom_as_patient_stated():
 
 def test_fabricated_evidence_is_demoted_to_inferred():
     """الاختبار الأهم: شاهد لا يرد في كلام المريض لا يمنح تأكيداً."""
-    svc = service([turn(symptoms=[
-        sym("ألم صدر", evidence="المريض ذكر ألماً شديداً في الصدر"),
-    ])])
+    svc = service([turn()], symptom_batches=[
+        [sym("ألم صدر", evidence="المريض ذكر ألماً شديداً في الصدر")],
+    ])
     state, _ = svc.handle_message("عندي صداع من امبارح", None)
 
     symptom = state.symptoms[0]
@@ -126,7 +153,7 @@ def test_fabricated_evidence_is_demoted_to_inferred():
 
 def test_inferred_symptom_is_kept_not_deleted():
     """الاستنتاج معلومة مشروعة — يُوسَم ولا يُحذف."""
-    svc = service([turn(symptoms=[sym("ألم صدر", evidence=None)])])
+    svc = service([turn()], symptom_batches=[[sym("ألم صدر", evidence=None)]])
     state, _ = svc.handle_message("عندي صداع", None)
 
     assert [s.text for s in state.symptoms] == ["ألم صدر"]
@@ -135,7 +162,7 @@ def test_inferred_symptom_is_kept_not_deleted():
 
 def test_symptom_text_present_in_message_verifies_without_evidence():
     """إن ورد نصّ العرَض حرفياً فلا حاجة لشاهد منفصل."""
-    svc = service([turn(symptoms=[sym("صداع", evidence=None)])])
+    svc = service([turn()], symptom_batches=[[sym("صداع", evidence=None)]])
     state, _ = svc.handle_message("عندي صداع", None)
 
     assert state.symptoms[0].source is FactSource.PATIENT_EXPLICIT
@@ -143,14 +170,16 @@ def test_symptom_text_present_in_message_verifies_without_evidence():
 
 def test_trivially_short_evidence_does_not_verify():
     """مقطع قصير جداً يرد في أي نصّ — إثباته بلا قيمة."""
-    svc = service([turn(symptoms=[sym("ألم صدر", evidence="من")])])
+    svc = service([turn()], symptom_batches=[[sym("ألم صدر", evidence="من")]])
     state, _ = svc.handle_message("عندي صداع من امبارح", None)
 
     assert state.symptoms[0].source is FactSource.LLM_INFERRED
 
 
 def test_evidence_verification_ignores_diacritics_and_spelling_variants():
-    svc = service([turn(symptoms=[sym("صداع", evidence="عندي صُداع شديد")])])
+    svc = service([turn()], symptom_batches=[
+        [sym("صداع", evidence="عندي صُداع شديد")],
+    ])
     state, _ = svc.handle_message("عندي صداع شديد", None)
 
     assert state.symptoms[0].source is FactSource.PATIENT_EXPLICIT
@@ -173,9 +202,11 @@ def test_patient_stated_medication_is_verified():
 
 def test_provenance_carries_turn_number():
     svc = service([
-        turn(symptoms=[sym("صداع", evidence="عندي صداع")]),
-        turn(symptoms=[sym("حرارة", evidence="وصار عندي حرارة")],
-             next_slot="severity", question="ما الشدة؟"),
+        turn(),
+        turn(next_slot="severity", question="ما الشدة؟"),
+    ], symptom_batches=[
+        [sym("صداع", evidence="عندي صداع")],
+        [sym("حرارة", evidence="وصار عندي حرارة")],
     ])
     state, _ = svc.handle_message("عندي صداع", None)
     state, _ = svc.handle_message("وصار عندي حرارة", state.session_id)

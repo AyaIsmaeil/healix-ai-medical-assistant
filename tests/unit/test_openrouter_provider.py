@@ -153,6 +153,7 @@ def test_factory_returns_mock_by_config(monkeypatch):
 def test_factory_returns_qwen_by_config_only(monkeypatch):
     monkeypatch.setattr(config_module.config, "LLM_PROVIDER", "QWEN_OPENROUTER")
     monkeypatch.setattr(config_module.config, "OPENROUTER_API_KEY", "test-key")
+    monkeypatch.setattr(config_module.config, "LLM_FALLBACK_TO_MOCK", False)
     provider = build_llm_provider()
     assert isinstance(provider, QwenOpenRouterProvider)
     assert provider.name == "qwen_openrouter"
@@ -178,20 +179,38 @@ UNIFIED_JSON = json.dumps({
 }, ensure_ascii=False)
 
 
+class _FixedSymptomExtractor:
+    """بديل اختباري لـ CompositeSymptomExtractor — أعراض ثابتة لكل استدعاء.
+
+    الأعراض تُستخرَج بمسار مستقلّ عن ردّ الـLLM هنا، فحقل ``symptoms`` داخل
+    ``UNIFIED_JSON`` (توثيق تاريخي للعقد فقط) لا يصل إلى ``state.symptoms``."""
+
+    def __init__(self, symptoms):
+        self._symptoms = symptoms
+
+    def extract(self, raw_messages, known_symptoms=None):
+        return list(self._symptoms)
+
+
 def test_interview_engine_unchanged_with_qwen_provider():
+    from app.domain.conversation import Symptom
+
     provider = _provider([FakeResponse(content=UNIFIED_JSON)])
     svc = ConversationService(
         provider=provider,
         prompt_builder=InterviewPromptBuilder(),
         store=InMemorySessionStore(),
         max_questions=20,
+        symptom_extractor=_FixedSymptomExtractor(
+            [Symptom(text="صداع", negated=False, confidence=0.9)]
+        ),
     )
     state, decision = svc.handle_message("أعاني من صداع", None)
     assert decision.finished is False
     assert decision.question == "منذ متى؟"
     assert decision.next_slot == "onset@صداع"
     assert state.asked_slots == ["onset@صداع"]
-    # الاستخراج وصل من نفس الاستدعاء — بلا مستخرج مستقل.
+    # الاستخراج وصل من مسار SymptomExtractor المستقلّ.
     assert [s.text for s in state.symptoms] == ["صداع"]
     assert state.record.chief_complaint == "صداع"
 

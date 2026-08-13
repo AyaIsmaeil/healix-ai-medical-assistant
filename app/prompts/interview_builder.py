@@ -28,10 +28,13 @@ Healix - Clinical Interview Prompt Builder
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from app.domain import clinical
 from app.domain.conversation import ConversationState
+
+if TYPE_CHECKING:
+    from app.domain.red_flag_engine import RedFlagEngine
 
 # أسماء الحقول الموسومة (يقرؤها المزوّد الوهمي أيضاً).
 LABEL_PATIENT_MESSAGES = "PATIENT_MESSAGES"
@@ -70,23 +73,6 @@ INTERVIEW_JSON_SCHEMA: Dict[str, Any] = {
         "type": "object",
         "properties": {
             "chief_complaint": {"type": ["string", "null"]},
-            "symptoms": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "text": {"type": "string"},
-                        "negated": {"type": "boolean"},
-                        "confidence": {"type": "number"},
-                        # الشاهد: مقطع حرفي من كلام المريض. يُتحقَّق منه
-                        # حتمياً بعد الاستلام (هل يرد فعلاً في الرسائل؟)،
-                        # فلا يستطيع النموذج منح نفسه صفة "مؤكَّد".
-                        "evidence": {"type": ["string", "null"]},
-                    },
-                    "required": ["text", "negated", "confidence", "evidence"],
-                    "additionalProperties": False,
-                },
-            },
             "severity": {"type": ["string", "null"]},
             "duration": {"type": ["string", "null"]},
             "body_location": {"type": ["string", "null"]},
@@ -101,7 +87,6 @@ INTERVIEW_JSON_SCHEMA: Dict[str, Any] = {
         },
         "required": [
             *RECORD_SCALAR_KEYS,
-            "symptoms",
             *RECORD_LIST_KEYS,
             *DECISION_KEYS,
         ],
@@ -113,35 +98,36 @@ INTERVIEW_JSON_SCHEMA: Dict[str, Any] = {
 class InterviewPromptBuilder:
     """يبني تعليمات وكيل المقابلة السريرية (استخراج + سؤال) من حالة المحادثة."""
 
-    version = "clinical-interview-v5"
+    version = "clinical-interview-v6"
+
+    def __init__(self, red_flag_engine: Optional["RedFlagEngine"] = None) -> None:
+        # اختياري بالكامل (C-3): يُستخدَم فقط لترقية أسئلة الأعراض المرتبطة
+        # بعلم أحمر محتمل ضمن SUGGESTED_MISSING_SLOTS — انظر domain.clinical.
+        # غيابه يُبقي الاقتراحات بالترتيب الثابت القديم كما كانت (تدهور آمن).
+        self._red_flags = red_flag_engine
 
     def system_prompt(self) -> str:
         return (
             "أنت طبيب خبير يُجري أخذ التاريخ المرضي (History Taking) باللغة العربية.\n"
             "لديك مهمّتان في كل دور، وتُنجزهما معاً في كائن JSON واحد:\n"
-            "  (1) استخراج المعلومات الطبية المنظَّمة من كلام المريض.\n"
+            "  (1) استخراج المعلومات الطبية المنظَّمة من كلام المريض (باستثناء "
+            "الأعراض — تُستخرَج بمسار مستقلّ مسبقاً وتراها في KNOWN_SYMPTOMS).\n"
             "  (2) طرح السؤال الطبي التالي الأعلى قيمة.\n"
             "لست مطالباً بأي تشخيص إطلاقاً.\n\n"
             "تتلقّى حالة منظَّمة تحتوي:\n"
             "- PATIENT_MESSAGES: كل ما قاله المريض بترتيب الزمن (آخرها الأحدث).\n"
             "- LATEST_MESSAGE: رسالة هذا الدور تحديداً.\n"
-            "- KNOWN_SYMPTOMS / KNOWN_NEGATED_SYMPTOMS: ما استُخرج في الأدوار السابقة.\n"
+            "- KNOWN_SYMPTOMS / KNOWN_NEGATED_SYMPTOMS: الأعراض المُستخرَجة سلفاً "
+            "(مسار مستقلّ — لا تُعيد استخراجها).\n"
             "- KNOWN_RECORD: السجل المنظَّم المتراكم حتى الآن.\n"
             "- ASKED_SLOTS: الخانات التي سبق طرح سؤال عنها (لمنع تكرار السؤال).\n"
             "- TURN_COUNT و SUGGESTED_MISSING_SLOTS.\n\n"
-            "قواعد الاستخراج:\n"
+            "قواعد الاستخراج (السجل فقط — لا أعراض):\n"
             "أ. استخرج من PATIENT_MESSAGES كاملةً، لا من الرسالة الأخيرة وحدها.\n"
             "ب. لا تختلق أي معلومة لم يذكرها المريض صراحةً أو ضمناً بوضوح.\n"
-            "ج. الأعراض المنفية تُدرَج في symptoms بـnegated=true (لا تُهمَل).\n"
-            "د. confidence رقم بين 0 و1 يعبّر عن وضوح ورود العرَض في كلام المريض.\n"
-            "د٢. **evidence لكل عرَض: انسخ المقطع الحرفي من كلام المريض الذي "
-            "يدلّ عليه — نسخاً لا إعادة صياغة.** إن لم يكن العرَض مذكوراً "
-            "حرفياً (استنتجته) فاجعل evidence = null. لا تختلق شاهداً: "
-            "الشاهد يُتحقَّق منه آلياً في كلام المريض، والشاهد غير الموجود "
-            "يُسقط تأكيد العرَض.\n"
-            "هـ. أعد الحقول التي لم تُذكر بعد كـnull (للمفردة) أو [] (للقوائم).\n"
-            "و. أعد في KNOWN_* ما تراكم سلفاً وأضف إليه الجديد — لا تحذف معلومة سابقة.\n"
-            "ز. missing_fields: أسماء المعلومات المهمّة الناقصة الآن فقط.\n\n"
+            "ج. أعد الحقول التي لم تُذكر بعد كـnull (للمفردة) أو [] (للقوائم).\n"
+            "د. أعد في KNOWN_* ما تراكم سلفاً وأضف إليه الجديد — لا تحذف معلومة سابقة.\n"
+            "هـ. missing_fields: أسماء المعلومات المهمّة الناقصة الآن فقط.\n\n"
             "قواعد السؤال:\n"
             "1. اطرح سؤالاً واحداً فقط في كل ردّ، بعربية طبيعية ومهذّبة.\n"
             "2. اختر السؤال الأعلى قيمة تشخيصية الذي يقلّل الغموض أكثر من غيره.\n"
@@ -153,12 +139,23 @@ class InterviewPromptBuilder:
             "التدخين والعمليات — إن كانت ذات صلة طبية.\n"
             "6. أعد finished=true فقط عندما يصبح التاريخ المرضي كافياً، وعندها "
             "اجعل next_slot و question يساويان null.\n\n"
+            "أسلوب السؤال (هذا ما يقرأه المريض فعلياً — اهتمّ به بقدر الاستخراج):\n"
+            "أ. اكتب كأنك طبيب حقيقي يجلس مع المريض، لا روبوت محادثة. جملة "
+            "قصيرة ومباشرة ودافئة، لا صياغة تقرير رسمي جامد.\n"
+            "ب. لا تبدأ كل سؤال بنفس القالب ('هل يمكنك أن...'، 'هل تستطيع أن...'). "
+            "نوّع الصياغة بين الأدوار — هذا أوّل ما يفضح أنّ الكاتب نموذج آلي.\n"
+            "ج. ممنوع كليّاً أي عبارة من نوع: 'بصفتي مساعد ذكاء اصطناعي'، "
+            "'كنموذج لغوي'، 'يسعدني مساعدتك'، 'أتفهّم قلقك'، أو أي تذكير بأنّك "
+            "أداة/برنامج. أنت طبيب بالسياق الحواري، لا نظام يشرح نفسه.\n"
+            "د. لا تُلحق كل سؤال بتحذير أو تنويه — التنويه الطبي الوحيد يصدر "
+            "مرّة واحدة بمكان آخر من النظام، تكراره بكل سؤال يبدو آلياً ومزعجاً.\n"
+            "هـ. مثال جيّد (مباشر وطبيعي): 'قديش صار إلها الوجع؟' أو 'بتوجعك "
+            "أكتر وقت الأكل ولا بأي وقت؟'. مثال سيّئ (رسمي وآلي): 'هل يمكنك أن "
+            "تخبرني بمزيد من التفاصيل حول مدّة استمرار الألم الذي تشعر به؟'.\n\n"
             "ممنوع منعاً باتاً: أي تشخيص أو احتمالات أمراض أو تخصّص طبي أو درجة "
             "خطورة أو توصية علاجية. مهمتك جمع المعلومات وتنظيمها فقط.\n\n"
             "أعد ردّك بصيغة JSON فقط، دون أي نصّ خارج JSON، بهذا الشكل حصراً:\n"
             '{"chief_complaint": <نص أو null>, '
-            '"symptoms": [{"text": "<عرَض>", "negated": false, "confidence": 0.9, '
-            '"evidence": "<مقطع حرفي من كلام المريض أو null>"}], '
             '"severity": <نص أو null>, "duration": <نص أو null>, '
             '"body_location": <نص أو null>, "medications": [], "allergies": [], '
             '"chronic_conditions": [], "family_history": [], "missing_fields": [], '
@@ -179,6 +176,7 @@ class InterviewPromptBuilder:
             state.asked_slots,
             limit=_SUGGESTION_LIMIT,
             primary=state.primary_complaint,
+            red_flag_engine=self._red_flags,
         )
 
         record = state.record
@@ -211,8 +209,8 @@ class InterviewPromptBuilder:
         return (
             "الحالة المنظَّمة الحالية للمقابلة:\n"
             f"{state_block}\n\n"
-            "أولاً: استخرج كل المعلومات الطبية المنظَّمة من PATIENT_MESSAGES "
-            "(مضيفاً إلى ما في KNOWN_RECORD دون حذف شيء منه).\n"
+            "أولاً: استخرج المعلومات الطبية المنظَّمة (باستثناء الأعراض) من "
+            "PATIENT_MESSAGES (مضيفاً إلى ما في KNOWN_RECORD دون حذف شيء منه).\n"
             "ثانياً: حدّد الخانة الأعلى قيمة تشخيصية التي لم تُغطَّ بعد ولم "
             "يذكرها المريض، واطرح سؤالاً عربياً واحداً عنها. إن اكتمل جمع "
             "التاريخ المرضي فأعد finished=true مع next_slot=null و question=null.\n"

@@ -2,8 +2,11 @@
 Healix - Mock LLM Provider
 مزوّد LLM حتمي بديل، يعمل دون نموذج حقيقي (للتطوير والاختبار).
 
-بعد الانتقال لمعمارية LLM-first لم يعد هناك مستخرج أعراض خارجي يُغذّي التعليمات،
-فصار على المزوّد الوهمي أن يُنتج **العقد الموحّد كاملاً**: استخراج + قرار.
+يُستدعى هذا المزوّد من ثلاثة مسارات مستقلّة، ويميّز بينها من الوسم الفريد
+الموجود بتعليمات كل مسار:
+- استخراج الأعراض (SymptomExtractor): وسم CONCEPT_CATALOG.
+- اختيار مفاهيم الأدلة (EvidenceConceptExtractor): وسم KNOWN_CONCEPTS.
+- دور المقابلة (سجل + قرار السؤال التالي، بلا أعراض): الافتراضي.
 
 كيف يفعل ذلك حتمياً:
 - الأعراض: مطابقة كلمات مفتاحية عربية بسيطة على PATIENT_MESSAGES، مع كشف نفي
@@ -33,6 +36,8 @@ from app.prompts.interview_builder import (
     LABEL_KNOWN_SYMPTOMS,
     LABEL_PATIENT_MESSAGES,
 )
+from app.prompts.evidence_concept_extraction_builder import LABEL_KNOWN_CONCEPTS
+from app.prompts.symptom_extraction_builder import LABEL_CONCEPT_CATALOG
 
 _SymptomView = namedtuple("_SymptomView", ["text", "negated"])
 
@@ -50,6 +55,20 @@ _SYMPTOM_LEXICON: Tuple[Tuple[str, Tuple[str, ...]], ...] = (
     ("ألم حلق", ("حلق", "بلعوم")),
 )
 
+# ربط أسماء الأعراض العربية (معجم المقابلة) → مفاهيم symptom_evidence_map.
+_SYMPTOM_TO_CONCEPT: Dict[str, str] = {
+    "حرارة": "fever",
+    "صداع": "headache",
+    "سعال": "cough",
+    "ألم بطن": "abdominal_pain",
+    "ألم صدر": "chest_pain",
+    "ضيق تنفس": "dyspnea",
+    "غثيان": "nausea",
+    "إسهال": "diarrhea",
+    "دوخة": "dizziness",
+    "ألم حلق": "sore_throat",
+}
+
 # صيغ النفي التي تسبق العرَض مباشرةً (نافذة قصيرة لتفادي النفي البعيد الخاطئ).
 _NEGATION_HINTS = ("لا ", "ما في", "مافي", "بدون", "ليس", "بلا", "من غير")
 _NEGATION_WINDOW = 12
@@ -61,6 +80,11 @@ class MockLLMProvider:
     name = "mock"
 
     def generate(self, system_prompt: str, user_prompt: str) -> Completion:
+        if LABEL_KNOWN_CONCEPTS in user_prompt:
+            return self._evidence_concept_completion(user_prompt)
+        if LABEL_CONCEPT_CATALOG in user_prompt:
+            return self._symptom_extraction_completion(user_prompt)
+
         patient_messages = self._grab(user_prompt, LABEL_PATIENT_MESSAGES) or []
         known = self._grab(user_prompt, LABEL_KNOWN_SYMPTOMS) or []
         known_negated = self._grab(user_prompt, LABEL_KNOWN_NEGATED) or []
@@ -105,6 +129,44 @@ class MockLLMProvider:
             "next_slot": None if item is None else item[0],
             "question": None if item is None else item[1],
         }
+        return Completion(json.dumps(payload, ensure_ascii=False), model="mock")
+
+    def _symptom_extraction_completion(self, user_prompt: str) -> Completion:
+        """عقد استخراج الأعراض المستقلّ (SymptomExtractionPromptBuilder)."""
+        patient_messages = self._grab(user_prompt, LABEL_PATIENT_MESSAGES) or []
+        context_text = " ".join(str(message) for message in patient_messages)
+
+        symptoms = []
+        for name, negated in self._detect(context_text):
+            concept = _SYMPTOM_TO_CONCEPT.get(name)
+            if not concept:
+                continue
+            symptoms.append({
+                "text": name,
+                "concept": concept,
+                "negated": negated,
+                "confidence": 0.75,
+                "evidence": None,
+            })
+
+        payload = {"symptoms": symptoms}
+        return Completion(json.dumps(payload, ensure_ascii=False), model="mock")
+
+    def _evidence_concept_completion(self, user_prompt: str) -> Completion:
+        """عقد اختيار مفاهيم الأدلة — enum مغلق من symptom_evidence_map."""
+        known_concepts = self._grab(user_prompt, LABEL_KNOWN_CONCEPTS) or []
+        patient_messages = self._grab(user_prompt, LABEL_PATIENT_MESSAGES) or []
+        context_text = " ".join(str(message) for message in patient_messages)
+
+        selected: set[str] = set()
+        for name, negated in self._detect(context_text):
+            if negated:
+                continue
+            concept = _SYMPTOM_TO_CONCEPT.get(name)
+            if concept and concept in known_concepts:
+                selected.add(concept)
+
+        payload = {"concepts": sorted(selected)}
         return Completion(json.dumps(payload, ensure_ascii=False), model="mock")
 
     def health(self) -> dict:

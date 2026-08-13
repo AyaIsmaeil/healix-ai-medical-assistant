@@ -80,9 +80,14 @@ class UrgencyClassifierPort(Protocol):
     كود آخر بالنظام — استبدال الـadapter فقط.
     """
 
-    def classify(self, clinical_features: ClinicalFeatureSet) -> UrgencyAssessment:
+    def classify(
+        self,
+        clinical_features: ClinicalFeatureSet,
+        prediction_result: Optional[DiseasePredictionResult] = None,
+    ) -> UrgencyAssessment:
         """تقييم درجة الاستعجال من الميزات السريرية المُتحقَّق منها. يُعاد
-        ``UrgencyAssessment`` دائماً."""
+        ``UrgencyAssessment`` دائماً. ``prediction_result`` اختياري — يُستخدم
+        لرفع الحدّ الأدنى للاستعجال من شدّة المرض المُتنبَّأ (تصعيد فقط)."""
         ...
 
 

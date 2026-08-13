@@ -48,6 +48,19 @@ RECENCY_MAX_BOOST = 10.0
 RED_FLAG_IMMEDIATE_BOOST = 100.0
 RED_FLAG_URGENT_BOOST = 60.0
 
+# الحدّ الأقصى لفارق acuity الذي يجوز لـrecency_boost تجاوزه (C-2).
+# دون هذا القيد كان recency_boost (+10 ثابتة) يقلب الشكوى الرئيسية بمجرّد
+# تأخّر ذكرها بدور واحد، حتى لو كانت أقلّ حدّة فعلياً بفارق معتبر — مثال
+# مُثبَت: ألم الصدر (acuity=95) يخسر الصدارة لضيق التنفّس (acuity=92) بمجرّد
+# ذكر الأخير بدور أحدث (92+10=102 > 95+0=95)، رغم فارق 3 نقاط فقط لصالح
+# ألم الصدر (انظر HEALIX_INTERVIEW_ASSESSMENT_AUDIT.md، القسم C-2).
+# القيمة 2.0 مُشتقّة من تكتّل القيم العليا الفعلي بجدول الإنتاج
+# (chest_pain=95, syncope=94, focal_neuro_deficit=96, seizure=93,
+# dyspnea=92 — كلّها ضمن مجال 4 نقاط) لا رقماً مُختلَقاً: تكفي لترك
+# recency_boost يحسم بين أعراض متقاربة الحدّة فعلاً (فارق ≤2)، بينما تمنعه
+# من تجاوز فارق 3 نقاط فأكثر بين عرَضين مختلفَي الحدّة سريرياً بوضوح.
+RECENCY_ACUITY_TOLERANCE = 2.0
+
 
 @dataclass(frozen=True)
 class SymptomPriority:
@@ -165,9 +178,16 @@ class ClinicalPriorityEngine:
         context = normalize_arabic(" ".join(raw_messages))
         red_flag_boost = self._red_flag_boost(risk)
         max_turn = max((getattr(s, "turn_number", 0) or 0) for s in positives)
+        # أعلى acuity بين أعراض هذا الدور المُثبَتة — يُستخدَم فقط لضبط سقف
+        # recency_boost (C-2)، لا يُخزَّن ولا يُعاد. حساب مسبق لأنّ acuity
+        # عرَض واحد لا يكفي وحده لمعرفة موقعه من بقية أعراض الجلسة.
+        max_acuity = max(
+            self._match_concept(getattr(symptom, "text", "") or "")[1]
+            for symptom in positives
+        )
 
         scored = [
-            self._score(symptom, context, red_flag_boost, max_turn)
+            self._score(symptom, context, red_flag_boost, max_turn, max_acuity)
             for symptom in positives
         ]
 
@@ -190,7 +210,12 @@ class ClinicalPriorityEngine:
     # داخلي
     # ------------------------------------------------------------------
     def _score(
-        self, symptom: Any, context: str, red_flag_boost: float, max_turn: int
+        self,
+        symptom: Any,
+        context: str,
+        red_flag_boost: float,
+        max_turn: int,
+        max_acuity: float,
     ) -> SymptomPriority:
         text = getattr(symptom, "text", "") or ""
         concept, acuity = self._match_concept(text)
@@ -201,6 +226,15 @@ class ClinicalPriorityEngine:
         # جميعاً وفقد الترتيب معناه.
         applies = red_flag_boost if acuity >= 80 else 0.0
 
+        # C-2: recency_boost يحسم فقط بين أعراض متقاربة الحدّة فعلاً (فارق
+        # acuity عن الأعلى بالجلسة ≤ RECENCY_ACUITY_TOLERANCE) — لا يجوز أن
+        # يقلب شكوى أعلى حدّة بمجرّد ذكر أخرى أقلّ حدّة بدور أحدث. أعلى
+        # عرَض حدّةً بالجلسة (max_acuity) فارقه عن نفسه صفر، فيبقى مؤهَّلاً
+        # دائماً — القيد يستبعد فقط ما يتخلّف عنه بفارق معتبر.
+        is_recent = turn >= max_turn > 0
+        within_recency_tolerance = (max_acuity - acuity) <= RECENCY_ACUITY_TOLERANCE
+        recency = RECENCY_MAX_BOOST if is_recent and within_recency_tolerance else 0.0
+
         return SymptomPriority(
             symptom_text=text,
             concept=concept,
@@ -208,7 +242,7 @@ class ClinicalPriorityEngine:
             red_flag_boost=applies,
             severity_boost=self._severity_boost(text, context),
             emphasis_boost=self._emphasis_boost(context),
-            recency_boost=RECENCY_MAX_BOOST if turn >= max_turn > 0 else 0.0,
+            recency_boost=recency,
             turn_number=turn,
         )
 

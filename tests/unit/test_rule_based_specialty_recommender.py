@@ -2,6 +2,8 @@
 بسيطة (Placeholder)، بلا أي مكتبة ML. مدخل ClinicalFeatureSet/DiseasePredictionResult
 حقيقي مباشر (بلا مكتبات mocking)، نفس روح باقي اختبارات الوحدة."""
 
+import joblib
+
 from app.domain.assessment import (
     ClinicalFeatureSet,
     Demographics,
@@ -10,6 +12,7 @@ from app.domain.assessment import (
 )
 from app.domain.prediction import DiseasePrediction, DiseasePredictionResult
 from app.domain.rule_based_specialty_recommender import RuleBasedSpecialtyRecommender
+from app.infrastructure.dictionary_loader import DictionaryLoader
 
 _LOOKUP = {
     "influenza": {"specialty": "Family Medicine"},
@@ -223,3 +226,93 @@ def test_explanation_never_empty():
     ]
     for result in cases:
         assert result.explanation
+
+
+# ----------------------------------------------------------------------
+# ADR-04: Disease -> disease_metadata -> Specialty (القاموس الحقيقي المُودَع
+# بالمشروع، لا fixture يدوي — يثبت أنّ الملف الفعلي يعمل، لا نسخة مبسَّطة)
+# ----------------------------------------------------------------------
+def _disease_metadata():
+    return DictionaryLoader.load_disease_metadata()
+
+
+def _recommender_with_metadata():
+    return RuleBasedSpecialtyRecommender(
+        specialty_lookup=_LOOKUP, disease_metadata=_disease_metadata()
+    )
+
+
+def _real_disease_names():
+    encoder = joblib.load("models/label_encoder.joblib")
+    return list(encoder.classes_)
+
+
+def test_all_49_real_model_diseases_resolve_to_a_specialty():
+    """كل اسم مرض حقيقي من مخرجات XGBoost (label_encoder.classes_) يجب أن
+    يُحلّ لتخصّص غير فارغ — ٤٩/٤٩، صفر فشل صامت (كان ٠/٤٩ قبل ADR-04)."""
+    recommender = _recommender_with_metadata()
+    names = _real_disease_names()
+    assert len(names) == 49
+
+    resolved = 0
+    for name in names:
+        result = recommender.recommend(_features(), _predictions((name, 0.9)))
+        assert result.specialty, f"{name}: specialty فارغ — ممنوع"
+        resolved += 1
+    assert resolved == 49
+
+
+def test_clean_disease_gets_high_confidence_and_no_review_language():
+    # Unstable angina: requires_review=false بـdisease_metadata.yaml (فصل I نظيف)
+    result = _recommender_with_metadata().recommend(
+        _features(), _predictions(("Unstable angina", 0.9))
+    )
+    assert result.specialty == "Cardiology"
+    assert result.confidence == 0.90
+    assert "review" not in result.explanation.lower()
+
+
+def test_ambiguous_disease_never_returns_null_specialty_and_is_flagged():
+    # Sarcoidosis: requires_review=true بـdisease_metadata.yaml (مثال المستخدم بالضبط)
+    result = _recommender_with_metadata().recommend(
+        _features(), _predictions(("Sarcoidosis", 0.9))
+    )
+    assert result.specialty == "General Medicine"
+    assert result.specialty is not None
+    assert result.confidence == 0.55
+    assert "no single specialty" in result.explanation.lower()
+
+
+def test_disease_metadata_takes_priority_over_old_specialty_lookup():
+    # "influenza" موجود بالقاموس القديم (_LOOKUP) وبـdisease_metadata الحقيقي
+    # (كنص مختلف الحالة: "Influenza") — الأولوية لـdisease_metadata.
+    result = _recommender_with_metadata().recommend(
+        _features(), _predictions(("Influenza", 0.9))
+    )
+    assert result.specialty == "Infectious Disease"  # من disease_metadata.yaml
+    # القاموس القديم كان سيُعيد "Family Medicine" لو أُعطي فرصة أولى
+    assert result.specialty != "Family Medicine"
+
+
+def test_old_specialty_lookup_still_works_for_names_absent_from_metadata():
+    # اسم غير موجود بـdisease_metadata (مثال: مخرجات RuleBasedDiseasePredictor
+    # القديمة) يجب أن يسقط للقاموس القديم كاحتياطي، لا يفشل.
+    result = _recommender_with_metadata().recommend(
+        _features(), _predictions(("appendicitis", 0.9))
+    )
+    assert result.specialty == "General Surgery"
+
+
+def test_disease_metadata_review_count_matches_documented_analysis():
+    """يثبّت عدد الحالات الغامضة (١٨) وعدد النظيفة (٣١) — أي تغيير هنا يعني
+    تعديلاً بـdisease_metadata.yaml يجب مراجعته صراحة، لا انجراف صامت."""
+    diseases = _disease_metadata()["diseases"]
+    assert len(diseases) == 49
+    n_review = sum(1 for d in diseases.values() if d["requires_review"])
+    n_clean = len(diseases) - n_review
+    assert n_review == 18
+    assert n_clean == 31
+    for name, entry in diseases.items():
+        assert entry["specialty"], f"{name}: specialty فارغ بالملف نفسه"
+        if entry["requires_review"]:
+            assert entry["review_reason"], f"{name}: requires_review=true بلا review_reason"

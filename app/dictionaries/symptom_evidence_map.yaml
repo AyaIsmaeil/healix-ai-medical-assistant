@@ -77,7 +77,7 @@ mappings:
     evidence_source: "E_53: Do you have pain somewhere, related to your reason for consulting? / E_55: Do you feel pain somewhere? (location values include forehead/temple/back of head)"
 
   - concept: "chest_pain"
-    names: ["ألم صدر", "وجع صدر", "ذبحة"]
+    names: ["ألم صدر", "وجع صدر", "ذبحة", "ضغط على الصدر", "ضغط صدر", "ضغط بالصدر"]
     evidence_codes: ["E_53", "E_55"]
     evidence_source: "E_53/E_55 — same generic pain-location question; DDXPlus has no dedicated chest-pain evidence code."
 
