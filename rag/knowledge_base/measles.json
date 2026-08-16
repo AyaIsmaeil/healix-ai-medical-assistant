@@ -1,0 +1,9 @@
+{
+  "name": "Measles",
+  "name_ar": "الحصبة",
+  "symptoms": ["حمى", "طفح جلدي", "سعال", "احمرار العين", "بقع بيضاء بالفم"],
+  "specialties": ["أطفال", "معدية"],
+  "source": "WHO Measles Fact Sheet",
+  "note": null,
+  "translation_reviewed": true
+}

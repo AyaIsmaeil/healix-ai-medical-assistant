@@ -1,0 +1,9 @@
+{
+  "name": "Benign Paroxysmal Positional Vertigo",
+  "name_ar": "الدوار الحميد الانتيابي",
+  "symptoms": ["دوخة", "دوار", "غثيان"],
+  "specialties": ["عصبية", "أنف وأذن وحنجرة"],
+  "source": "AAO-HNS Clinical Practice Guideline: BPPV",
+  "note": "Onset characteristically triggered by head position change.",
+  "translation_reviewed": true
+}

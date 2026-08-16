@@ -1,0 +1,9 @@
+{
+  "name": "Iron Deficiency Anaemia",
+  "name_ar": "فقر الدم بسبب نقص الحديد",
+  "symptoms": ["تعب", "شحوب", "دوخة", "خفقان القلب", "ضيق تنفس"],
+  "specialties": ["باطنية", "دموية"],
+  "source": "WHO — Iron Deficiency Anaemia",
+  "note": null,
+  "translation_reviewed": true
+}

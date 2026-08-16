@@ -1,0 +1,9 @@
+{
+  "name": "Tendinitis",
+  "name_ar": "التهاب الأوتار",
+  "symptoms": ["ألم موضعي عند الحركة", "تورم موضعي", "تيبس"],
+  "specialties": ["عظمية", "علاج طبيعي"],
+  "source": "NICE Clinical Knowledge Summary: Tendinopathy",
+  "note": null,
+  "translation_reviewed": true
+}
