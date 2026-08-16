@@ -1,0 +1,9 @@
+{
+  "name": "Community-Acquired Pneumonia",
+  "name_ar": "الالتهاب الرئوي",
+  "symptoms": ["حمى", "سعال", "ضيق تنفس", "ألم في الصدر", "تعب"],
+  "specialties": ["صدرية", "طب عام"],
+  "source": "WHO Pneumonia Fact Sheet",
+  "note": "Pain often worsens with breathing or coughing (pleuritic character); WHO cites cough, fever, and fast or difficult breathing as the most common presentation.",
+  "translation_reviewed": true
+}

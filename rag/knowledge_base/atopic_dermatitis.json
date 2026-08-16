@@ -1,0 +1,9 @@
+{
+  "name": "Atopic Dermatitis",
+  "name_ar": "الأكزيما",
+  "symptoms": ["حكة", "جفاف الجلد", "احمرار", "طفح جلدي"],
+  "specialties": ["جلدية"],
+  "source": "AAD Guidelines of care for atopic dermatitis",
+  "note": null,
+  "translation_reviewed": true
+}

@@ -1,0 +1,9 @@
+{
+  "name": "Infectious Mononucleosis",
+  "name_ar": "الحمى الغدية",
+  "symptoms": ["تعب شديد", "حمى", "ألم حلق شديد", "تورم غدد الرقبة"],
+  "specialties": ["أطفال", "باطنية"],
+  "source": "CDC Epstein-Barr Virus and Infectious Mononucleosis",
+  "note": "Fatigue is characteristically prolonged/severe relative to other viral illnesses.",
+  "translation_reviewed": true
+}
