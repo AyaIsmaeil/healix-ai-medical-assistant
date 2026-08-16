@@ -1,0 +1,9 @@
+{
+  "name": "Scabies",
+  "name_ar": "الجرب",
+  "symptoms": ["حكة شديدة ليلية", "طفح جلدي"],
+  "specialties": ["جلدية"],
+  "source": "CDC Scabies Clinical Care",
+  "note": "Itching characteristically worsens at night.",
+  "translation_reviewed": true
+}

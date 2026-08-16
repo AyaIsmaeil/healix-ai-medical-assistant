@@ -1,0 +1,9 @@
+{
+  "name": "Tension-Type Headache",
+  "name_ar": "الصداع التوتري",
+  "symptoms": ["صداع ضاغط من الجهتين", "تعب", "تيبس"],
+  "specialties": ["عصبية", "طب عام"],
+  "source": "International Headache Society, ICHD-3",
+  "note": "Bilateral, pressing/tightening quality, mild-to-moderate intensity — clinically distinguishes it from Migraine (unilateral, throbbing) in this knowledge base.",
+  "translation_reviewed": true
+}

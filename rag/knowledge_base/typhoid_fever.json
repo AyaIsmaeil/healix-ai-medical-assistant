@@ -1,0 +1,9 @@
+{
+  "name": "Typhoid Fever",
+  "name_ar": "التيفوئيد",
+  "symptoms": ["حمى", "ألم بطن", "صداع", "تعب"],
+  "specialties": ["معدية", "باطنية"],
+  "source": "WHO Typhoid Fact Sheet",
+  "note": null,
+  "translation_reviewed": true
+}

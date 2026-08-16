@@ -1,0 +1,10 @@
+{
+  "name": "Polycystic Ovary Syndrome",
+  "name_ar": "متلازمة تكيس المبايض",
+  "symptoms": ["اضطراب الدورة الشهرية", "حب الشباب", "زيادة وزن", "نمو شعر زائد"],
+  "specialties": ["نسائية", "غدد صماء"],
+  "applicable_sex": "female",
+  "source": "ACOG — PCOS Guidelines",
+  "note": null,
+  "translation_reviewed": true
+}

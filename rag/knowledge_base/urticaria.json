@@ -1,0 +1,9 @@
+{
+  "name": "Urticaria",
+  "name_ar": "الشرى",
+  "symptoms": ["طفح جلدي", "حكة", "تورم موضعي"],
+  "specialties": ["جلدية", "حساسية"],
+  "source": "EAACI/GA²LEN/EDF/WAO Guideline for urticaria",
+  "note": null,
+  "translation_reviewed": true
+}

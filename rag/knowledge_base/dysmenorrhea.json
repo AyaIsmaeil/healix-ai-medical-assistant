@@ -1,0 +1,10 @@
+{
+  "name": "Dysmenorrhea",
+  "name_ar": "ألم الدورة الشهرية",
+  "symptoms": ["ألم أسفل البطن", "ألم أسفل الظهر", "غثيان"],
+  "specialties": ["نسائية"],
+  "applicable_sex": "female",
+  "source": "ACOG — Dysmenorrhea",
+  "note": "Pain is characteristically cyclical, tied to menstruation.",
+  "translation_reviewed": true
+}

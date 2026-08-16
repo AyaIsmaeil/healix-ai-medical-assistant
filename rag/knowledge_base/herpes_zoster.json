@@ -1,0 +1,9 @@
+{
+  "name": "Herpes Zoster",
+  "name_ar": "الحزام الناري",
+  "symptoms": ["طفح جلدي", "حرقان أو وخز بالجلد", "حمى", "صداع"],
+  "specialties": ["جلدية", "طب عام"],
+  "source": "CDC: Shingles (Herpes Zoster)",
+  "note": "Rash classically appears in a band on one side of the body or face, following a single nerve distribution — a distinguishing feature from other vesicular rashes in this knowledge base.",
+  "translation_reviewed": true
+}
