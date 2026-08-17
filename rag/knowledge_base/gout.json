@@ -1,0 +1,9 @@
+{
+  "name": "Gout",
+  "name_ar": "النقرس",
+  "symptoms": ["ألم مفاصل شديد ومفاجئ", "تورم مفاصل", "احمرار"],
+  "specialties": ["روماتيزم"],
+  "source": "ACR Guideline for Management of Gout",
+  "note": null,
+  "translation_reviewed": true
+}

@@ -1,0 +1,9 @@
+{
+  "name": "Asthma",
+  "name_ar": "الربو",
+  "symptoms": ["ضيق تنفس", "أزيز صدر", "سعال", "ضيق بالصدر"],
+  "specialties": ["صدرية"],
+  "source": "GINA — Global Strategy for Asthma Management",
+  "note": "Cough is characteristically nocturnal.",
+  "translation_reviewed": true
+}

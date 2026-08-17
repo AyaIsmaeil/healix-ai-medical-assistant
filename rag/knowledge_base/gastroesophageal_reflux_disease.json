@@ -1,0 +1,9 @@
+{
+  "name": "Gastroesophageal Reflux Disease",
+  "name_ar": "الحموضة",
+  "symptoms": ["حرقة في الصدر", "ارتجاع حمضي", "صعوبة بلع", "طعم حامض أو مر بالفم"],
+  "specialties": ["هضمية", "طب عام"],
+  "source": "ACG Clinical Guideline for the Diagnosis and Management of Gastroesophageal Reflux Disease (Katz et al., Am J Gastroenterol 2022)",
+  "note": null,
+  "translation_reviewed": true
+}

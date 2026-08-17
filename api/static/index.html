@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="ar">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Healix AI — Dev Chat</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f4f4f6;
+    --panel: #ffffff;
+    --border: #d8d8de;
+    --text: #1c1c1e;
+    --muted: #6b6b70;
+    --user-bubble: #2f6fed;
+    --user-text: #ffffff;
+    --bot-bubble: #eceef2;
+    --bot-text: #1c1c1e;
+    --error-bubble: #fdeaea;
+    --error-text: #8a1f1f;
+    --banner-bg: #fff4d6;
+    --banner-text: #6b4e00;
+    --banner-border: #e8c667;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1b1b1e;
+      --panel: #232326;
+      --border: #38383c;
+      --text: #f0f0f2;
+      --muted: #9a9a9e;
+      --user-bubble: #2f6fed;
+      --user-text: #ffffff;
+      --bot-bubble: #333338;
+      --bot-text: #f0f0f2;
+      --error-bubble: #3a2323;
+      --error-text: #ff9b9b;
+      --banner-bg: #3a3319;
+      --banner-text: #f0d98c;
+      --banner-border: #6b5a1f;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 12px;
+    gap: 10px;
+  }
+  .banner {
+    background: var(--banner-bg);
+    color: var(--banner-text);
+    border: 1px solid var(--banner-border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .banner strong { font-weight: 700; }
+  header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  header h1 {
+    font-size: 16px;
+    margin: 0;
+  }
+  #thread-id {
+    font-size: 11px;
+    color: var(--muted);
+    font-family: ui-monospace, Consolas, monospace;
+  }
+  #messages {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .row {
+    display: flex;
+    flex-direction: column;
+    max-width: 82%;
+  }
+  .row.user { align-self: flex-end; align-items: flex-end; }
+  .row.bot { align-self: flex-start; align-items: flex-start; }
+  .row.error { align-self: center; max-width: 100%; }
+  .bubble {
+    padding: 9px 13px;
+    border-radius: 14px;
+    white-space: pre-wrap;
+    word-break: break-word;
+    line-height: 1.55;
+  }
+  .row.user .bubble {
+    background: var(--user-bubble);
+    color: var(--user-text);
+    border-bottom-right-radius: 4px;
+  }
+  .row.bot .bubble {
+    background: var(--bot-bubble);
+    color: var(--bot-text);
+    border-bottom-left-radius: 4px;
+  }
+  .row.error .bubble {
+    background: var(--error-bubble);
+    color: var(--error-text);
+    border-radius: 8px;
+    font-family: ui-monospace, Consolas, monospace;
+    font-size: 12.5px;
+  }
+  .meta {
+    font-size: 10.5px;
+    color: var(--muted);
+    margin-top: 3px;
+    padding: 0 4px;
+  }
+  .typing {
+    align-self: flex-start;
+    color: var(--muted);
+    font-size: 13px;
+    padding: 0 4px;
+  }
+  form {
+    display: flex;
+    gap: 8px;
+  }
+  #input {
+    flex: 1;
+    padding: 11px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+    background: var(--panel);
+    color: var(--text);
+    font-size: 14px;
+    font-family: inherit;
+  }
+  #input:focus { outline: 2px solid var(--user-bubble); outline-offset: -1px; }
+  button {
+    padding: 0 18px;
+    border-radius: 10px;
+    border: none;
+    background: var(--user-bubble);
+    color: #fff;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  button:disabled { opacity: 0.5; cursor: default; }
+</style>
+</head>
+<body>
+
+  <div class="banner">
+    <strong>⚠ Development / testing tool — not the real product.</strong>
+    Talks directly to the compiled LangGraph via <code>POST /chat</code> for manual
+    testing. The real product is the Laravel application; this page and
+    <code>api/main.py</code> are disposable.
+  </div>
+
+  <header>
+    <h1>Healix AI — dev chat</h1>
+    <span id="thread-id"></span>
+  </header>
+
+  <div id="messages"></div>
+
+  <form id="form" autocomplete="off">
+    <input id="input" type="text" dir="auto" placeholder="اكتب رسالتك هنا..." autofocus>
+    <button id="send" type="submit">إرسال</button>
+  </form>
+
+<script>
+  // Spliced in server-side by api/main.py's _inject_dev_token() before
+  // this page is served — never a hardcoded secret in this static file.
+  // POST /chat is the real, authenticated Laravel-facing route (no
+  // separate unauthenticated dev copy of it), so this page needs the
+  // real shared secret to keep working against it.
+  const internalToken = "__HEALIX_INTERNAL_TOKEN__";
+
+  // One random thread_id per page load, reused for every message this
+  // session — the checkpointer (graph.build_checkpointer(), keyed by
+  // thread_id) is what makes the conversation persist turn to turn.
+  const threadId = crypto.randomUUID();
+  document.getElementById("thread-id").textContent = "thread_id: " + threadId;
+
+  const messagesEl = document.getElementById("messages");
+  const formEl = document.getElementById("form");
+  const inputEl = document.getElementById("input");
+  const sendEl = document.getElementById("send");
+
+  function addBubble(role, text, meta) {
+    const row = document.createElement("div");
+    row.className = "row " + role;
+
+    const bubble = document.createElement("div");
+    bubble.className = "bubble";
+    // dir="auto" per-bubble: Arabic replies render right-to-left,
+    // English/mixed dev input still reads correctly left-to-right —
+    // detected from each message's own content, not hardcoded either way.
+    bubble.dir = "auto";
+    bubble.textContent = text;
+    row.appendChild(bubble);
+
+    if (meta) {
+      const metaEl = document.createElement("div");
+      metaEl.className = "meta";
+      metaEl.dir = "auto";
+      metaEl.textContent = meta;
+      row.appendChild(metaEl);
+    }
+
+    messagesEl.appendChild(row);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return row;
+  }
+
+  function setBusy(busy) {
+    inputEl.disabled = busy;
+    sendEl.disabled = busy;
+  }
+
+  async function sendMessage(text) {
+    addBubble("user", text);
+
+    const typingEl = document.createElement("div");
+    typingEl.className = "typing";
+    typingEl.textContent = "...عم يفكر";
+    messagesEl.appendChild(typingEl);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+
+    setBusy(true);
+    try {
+      const response = await fetch("/chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Healix-Internal-Token": internalToken,
+        },
+        body: JSON.stringify({ thread_id: threadId, message: text }),
+      });
+
+      typingEl.remove();
+
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        addBubble("error", body.detail || ("HTTP " + response.status));
+        return;
+      }
+
+      const data = await response.json();
+      addBubble("bot", data.reply, "stage: " + data.stage);
+    } catch (err) {
+      typingEl.remove();
+      addBubble("error", String(err));
+    } finally {
+      setBusy(false);
+      inputEl.focus();
+    }
+  }
+
+  formEl.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const text = inputEl.value.trim();
+    if (!text) return;
+    inputEl.value = "";
+    sendMessage(text);
+  });
+</script>
+</body>
+</html>

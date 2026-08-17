@@ -1,0 +1,10 @@
+{
+  "name": "Bacterial Vaginosis",
+  "name_ar": "التهاب المهبل الجرثومي",
+  "symptoms": ["إفرازات مهبلية", "حكة مهبلية", "رائحة مهبلية كريهة"],
+  "specialties": ["نسائية"],
+  "applicable_sex": "female",
+  "source": "CDC: Bacterial Vaginosis - STI Treatment Guidelines",
+  "note": "Discharge is classically thin, grey-white, with a fish-like odor — a distinguishing feature from Vaginal Candidiasis in this knowledge base, whose discharge is thick, white, and itch-predominant.",
+  "translation_reviewed": true
+}

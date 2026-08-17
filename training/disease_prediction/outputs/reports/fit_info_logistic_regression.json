@@ -1,8 +1,0 @@
-{
-  "model_path": "C:\\healix-ai-medical-assistant\\training\\disease_prediction\\outputs\\models\\logistic_regression.joblib",
-  "train_seconds": 2468.42,
-  "peak_memory_mb": 4131.0,
-  "model_size_mb": 0.059,
-  "n_train_rows": 1025602,
-  "n_validation_rows": 132448
-}

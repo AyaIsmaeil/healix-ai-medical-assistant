@@ -1,0 +1,9 @@
+{
+  "name": "Acute Bronchitis",
+  "name_ar": "التهاب الشعب الهوائية",
+  "symptoms": ["سعال", "بلغم", "ضيق بالصدر", "حمى خفيفة", "تعب"],
+  "specialties": ["صدرية", "طب عام"],
+  "source": "NICE CKS: Chest infections - adult",
+  "note": null,
+  "translation_reviewed": true
+}

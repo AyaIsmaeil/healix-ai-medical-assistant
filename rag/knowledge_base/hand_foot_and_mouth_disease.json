@@ -1,0 +1,9 @@
+{
+  "name": "Hand, Foot, and Mouth Disease",
+  "name_ar": "مرض اليد والقدم والفم",
+  "symptoms": ["حمى", "طفح جلدي", "تقرحات الفم", "التهاب حلق"],
+  "specialties": ["أطفال"],
+  "source": "CDC Hand, Foot, and Mouth Disease",
+  "note": null,
+  "translation_reviewed": true
+}

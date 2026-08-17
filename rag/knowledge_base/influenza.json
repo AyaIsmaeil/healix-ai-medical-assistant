@@ -1,0 +1,9 @@
+{
+  "name": "Influenza",
+  "name_ar": "الإنفلونزا",
+  "symptoms": ["حمى", "سعال", "ألم عضلي", "صداع", "تعب", "التهاب حلق", "سيلان أنف"],
+  "specialties": ["طب عام"],
+  "source": "WHO Influenza (Seasonal) Fact Sheet",
+  "note": null,
+  "translation_reviewed": true
+}

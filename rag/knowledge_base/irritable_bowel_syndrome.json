@@ -1,0 +1,9 @@
+{
+  "name": "Irritable Bowel Syndrome",
+  "name_ar": "القولون العصبي",
+  "symptoms": ["ألم بطن معمم", "انتفاخ", "إسهال", "إمساك"],
+  "specialties": ["هضمية"],
+  "source": "NICE Guideline — Irritable bowel syndrome in adults",
+  "note": "Symptoms often alternate between diarrhea and constipation rather than presenting simultaneously.",
+  "translation_reviewed": true
+}
