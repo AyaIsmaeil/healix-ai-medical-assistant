@@ -1,0 +1,9 @@
+{
+  "name": "Chickenpox",
+  "name_ar": "جدري الماء",
+  "symptoms": ["طفح جلدي", "حكة", "حمى", "تعب"],
+  "specialties": ["أطفال", "جلدية"],
+  "source": "CDC Chickenpox Clinical Overview",
+  "note": "Rash characteristically appears in successive crops at different stages (blister, scab) rather than uniformly.",
+  "translation_reviewed": true
+}

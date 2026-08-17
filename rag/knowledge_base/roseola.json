@@ -1,0 +1,9 @@
+{
+  "name": "Roseola",
+  "name_ar": "الطفح الوردي",
+  "symptoms": ["حمى مرتفعة مفاجئة", "طفح جلدي"],
+  "specialties": ["أطفال"],
+  "source": "AAP Roseola Infantum",
+  "note": "The defining pattern is fever resolving abruptly followed by rash onset.",
+  "translation_reviewed": true
+}

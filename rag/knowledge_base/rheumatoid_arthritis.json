@@ -1,0 +1,9 @@
+{
+  "name": "Rheumatoid Arthritis",
+  "name_ar": "التهاب المفاصل الروماتويدي",
+  "symptoms": ["ألم مفاصل", "تورم مفاصل", "تيبس صباحي", "تعب"],
+  "specialties": ["روماتيزم", "باطنية"],
+  "source": "NICE Guideline — Rheumatoid arthritis in adults",
+  "note": "Morning stiffness lasting over 30 minutes distinguishes it from osteoarthritis.",
+  "translation_reviewed": true
+}

@@ -1,0 +1,9 @@
+{
+  "name": "Urinary Tract Infection",
+  "name_ar": "التهاب المسالك البولية",
+  "symptoms": ["حرقة عند التبول", "تبول متكرر", "ألم أسفل البطن", "حمى"],
+  "specialties": ["مسالك بولية"],
+  "source": "NICE Guideline — UTI (lower): antimicrobial prescribing",
+  "note": null,
+  "translation_reviewed": true
+}

@@ -1,0 +1,46 @@
+pydantic>=2
+python-dotenv>=1
+google-genai>=1
+groq>=1
+ollama>=0.6
+langgraph>=1.2
+langgraph-checkpoint-sqlite>=3.1
+# psycopg[binary] bundles libpq instead of requiring it as a separate
+# system install — only actually connected to when HEALIX_POSTGRES_DSN is
+# set (graph.build_checkpointer); local dev runs on SqliteSaver instead.
+langgraph-checkpoint-postgres>=3.1
+psycopg[binary]>=3
+
+# api/main.py — the real Laravel-facing HTTP boundary (POST /chat,
+# GET /health) plus a local dev chat UI served from the same process.
+fastapi>=0.115
+uvicorn>=0.32
+# FastAPI requires this for UploadFile/File(...) (POST /speech/transcribe's
+# multipart form upload) — not imported directly anywhere, but the route
+# fails at request time without it installed.
+python-multipart>=0.0.9
+
+# speech_client.py — STT (faster-whisper/Whisper) and TTS (edge-tts),
+# wired into api/main.py's POST /speech/transcribe and /speech/synthesize.
+# Both are lazy-loaded (speech_client.py's own module docstring) so
+# importing this module — and therefore api/main.py itself — never pays
+# their load cost unless a speech endpoint is actually called.
+faster-whisper>=1.0
+edge-tts>=7.0
+
+# ml/ — vendored XGBoost corroboration signal (CLAUDE.md > Graph flow,
+# nodes/ml_corroborate.py). Pinned to the exact versions verified working
+# against the vendored bundle during this feature's audit — a version
+# mismatch here doesn't break loading (joblib/sklearn/xgboost tolerate a
+# close mismatch with a warning) but is worth keeping exact so that
+# warning never has to be reasoned about.
+joblib==1.5.3
+numpy==1.26.4
+scikit-learn==1.5.2
+xgboost==2.1.4
+
+# dev
+pytest>=8
+# tests/unit/test_api_main.py uses fastapi.testclient.TestClient, which
+# requires httpx as of Starlette's current TestClient implementation.
+httpx>=0.27
