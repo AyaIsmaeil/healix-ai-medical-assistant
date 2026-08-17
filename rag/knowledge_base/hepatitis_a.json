@@ -1,0 +1,9 @@
+{
+  "name": "Hepatitis A",
+  "name_ar": "التهاب الكبد الفيروسي أ",
+  "symptoms": ["يرقان", "تعب", "غثيان", "ألم أعلى البطن", "بول داكن"],
+  "specialties": ["هضمية", "معدية"],
+  "source": "CDC Hepatitis A Clinical Overview",
+  "note": null,
+  "translation_reviewed": true
+}

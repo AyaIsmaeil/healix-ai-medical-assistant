@@ -1,0 +1,9 @@
+{
+  "name": "Pediculosis Capitis",
+  "name_ar": "قمل الرأس",
+  "symptoms": ["حكة فروة الرأس", "احساس بحركة بفروة الرأس"],
+  "specialties": ["جلدية", "أطفال"],
+  "source": "CDC: Head Lice",
+  "note": "Visible nits or lice on the scalp/hair confirm diagnosis; itching may be absent early in infestation.",
+  "translation_reviewed": true
+}

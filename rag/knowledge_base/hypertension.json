@@ -1,0 +1,9 @@
+{
+  "name": "Hypertension",
+  "name_ar": "ضغط الدم المرتفع",
+  "symptoms": ["صداع", "دوخة"],
+  "specialties": ["باطنية", "قلبية"],
+  "source": "WHO Hypertension Fact Sheet",
+  "note": "Most cases are asymptomatic.",
+  "translation_reviewed": true
+}

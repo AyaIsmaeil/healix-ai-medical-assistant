@@ -1,0 +1,9 @@
+{
+  "name": "Impetigo",
+  "name_ar": "القوباء",
+  "symptoms": ["طفح جلدي", "قشور عسلية اللون على الجلد", "حكة", "احمرار"],
+  "specialties": ["جلدية", "أطفال"],
+  "source": "CDC: Impetigo",
+  "note": null,
+  "translation_reviewed": true
+}

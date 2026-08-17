@@ -1,0 +1,10 @@
+{
+  "name": "Vaginal Candidiasis",
+  "name_ar": "التهاب المهبل الفطري",
+  "symptoms": ["حكة مهبلية", "إفرازات مهبلية", "حرقة عند التبول"],
+  "specialties": ["نسائية"],
+  "applicable_sex": "female",
+  "source": "ACOG Practice Bulletin — Vaginitis",
+  "note": null,
+  "translation_reviewed": true
+}

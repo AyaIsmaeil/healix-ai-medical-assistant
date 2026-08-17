@@ -1,8 +1,0 @@
-{
-  "model_path": "C:\\healix-ai-medical-assistant\\training\\disease_prediction\\outputs\\models\\catboost.joblib",
-  "train_seconds": 3772.8922,
-  "peak_memory_mb": 6331.0,
-  "model_size_mb": 5.16,
-  "n_train_rows": 1025602,
-  "n_validation_rows": 132448
-}

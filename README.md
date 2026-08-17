@@ -1,1 +1,0 @@
-# healix-ai-medical-assistant
