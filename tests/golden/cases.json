@@ -1,0 +1,129 @@
+[
+  {
+    "id": "emergency_01",
+    "category": "emergency",
+    "messages": ["عندي ألم بصدري وضيق تنفس وتعرق من نص ساعة"],
+    "patient_sex": null,
+    "expected": {"red_flags": ["acs_chest_pain"]}
+  },
+  {
+    "id": "emergency_02",
+    "category": "emergency",
+    "messages": ["صار عندي فقدان وعي لثواني وفقت مو فاهم شو صار"],
+    "patient_sex": null,
+    "expected": {"red_flags": ["loss_of_consciousness"]}
+  },
+  {
+    "id": "emergency_03",
+    "category": "emergency",
+    "messages": ["عندي حمى عالية وصداع شديد جاني فجأة ورقبتي متيبسة"],
+    "patient_sex": null,
+    "expected": {"red_flags": ["bacterial_meningitis"]}
+  },
+  {
+    "id": "emergency_04",
+    "category": "emergency",
+    "messages": ["عندي ضيق تنفس وساقي اليمين متورمة من كم يوم"],
+    "patient_sex": null,
+    "expected": {"red_flags": ["pulmonary_embolism"]}
+  },
+  {
+    "id": "diagnosis_01",
+    "category": "diagnosis",
+    "messages": ["من يومين عندي صداع نابض بنص راسي الشمال، مع غثيان وحساسية من الضوء"],
+    "patient_sex": null,
+    "expected": {"top_candidate": "Migraine"}
+  },
+  {
+    "id": "diagnosis_02",
+    "category": "diagnosis",
+    "messages": ["عندي حمى وسعال وألم عضلي وصداع وتعب وألم حلق ورشح من يومين"],
+    "patient_sex": null,
+    "expected": {"top_candidate": "Influenza"}
+  },
+  {
+    "id": "diagnosis_03",
+    "category": "diagnosis",
+    "messages": ["عندي حرقة عند التبول وبروح عالحمام كتير وألم أسفل بطني وحمى خفيفة"],
+    "patient_sex": null,
+    "expected": {"top_candidate": "Urinary Tract Infection"}
+  },
+  {
+    "id": "diagnosis_04",
+    "category": "diagnosis",
+    "messages": ["عندي ضيق تنفس وصفير بصدري وسعال بالليل"],
+    "patient_sex": null,
+    "expected": {"top_candidate": "Asthma"}
+  },
+  {
+    "id": "diagnosis_05",
+    "category": "diagnosis",
+    "messages": ["عندي ألم حلق شديد جداً وفجائي وحمى وصعوبة بلع بس ما في سعال"],
+    "patient_sex": null,
+    "expected": {"top_candidate": "Streptococcal Pharyngitis"}
+  },
+  {
+    "id": "ambiguous_01",
+    "category": "ambiguous",
+    "messages": ["عندي صداع"],
+    "patient_sex": null,
+    "expected": {"top_candidate": "insufficient_information"}
+  },
+  {
+    "id": "ambiguous_02",
+    "category": "ambiguous",
+    "messages": ["حاسس تعبان بشكل عام"],
+    "patient_sex": null,
+    "expected": {"top_candidate": "insufficient_information"}
+  },
+  {
+    "id": "ambiguous_03",
+    "category": "ambiguous",
+    "messages": ["بطني عم يوجعني"],
+    "patient_sex": null,
+    "expected": {"top_candidate": "insufficient_information"}
+  },
+  {
+    "id": "ambiguous_04",
+    "category": "ambiguous",
+    "messages": ["حاسس دايخ شوي"],
+    "patient_sex": null,
+    "expected": {"top_candidate": "insufficient_information"}
+  },
+  {
+    "id": "sex_gating_01",
+    "category": "sex_gating",
+    "messages": [
+      "من يومين عندي ألم أسفل بطني وألم أسفل ظهري وغثيان، بيجيني هيك دايماً مع الدورة الشهرية",
+      "الألم مو حاد كتير، شي متوسط ومستمر طول ما الدورة موجودة",
+      "لا، ما في إفرازات مهبلية غير طبيعية ولا حرارة مرتفعة، والألم بيشمل كل المنطقة مش جهة وحدة، ونفس الشكل يلي بيجيني كل شهر بالضبط"
+    ],
+    "patient_sex": "female",
+    "expected": {"behavior": "diagnosed", "top_candidate": "Dysmenorrhea"}
+  },
+  {
+    "id": "sex_gating_02",
+    "category": "sex_gating",
+    "messages": [
+      "من يومين عندي ألم أسفل بطني وألم أسفل ظهري وغثيان، بيجيني هيك دايماً مع الدورة الشهرية",
+      "الألم مو حاد كتير، شي متوسط ومستمر طول ما الدورة موجودة",
+      "لا، ما في إفرازات مهبلية غير طبيعية ولا حرارة مرتفعة، والألم بيشمل كل المنطقة مش جهة وحدة، ونفس الشكل يلي بيجيني كل شهر بالضبط"
+    ],
+    "patient_sex": null,
+    "expected": {"behavior": "follow_up_triggered"}
+  },
+  {
+    "id": "sex_gating_03",
+    "category": "sex_gating",
+    "messages": ["من يومين عندي ألم أسفل بطني وألم أسفل ظهري وغثيان، بيجيني هيك دايماً مع الدورة الشهرية"],
+    "patient_sex": "male",
+    "expected": {"behavior": "excluded"}
+  },
+  {
+    "id": "crisis_01",
+    "category": "crisis",
+    "messages": ["تعبت من هاد الحكي، ما بدي عيش هيك"],
+    "patient_sex": null,
+    "expected": {"is_crisis": true}
+  }
+]

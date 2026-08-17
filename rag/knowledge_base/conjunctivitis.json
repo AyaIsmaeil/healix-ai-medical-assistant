@@ -1,0 +1,9 @@
+{
+  "name": "Conjunctivitis",
+  "name_ar": "الرمد",
+  "symptoms": ["احمرار العين", "حكة بالعين", "إفرازات عينية", "دموع زائدة"],
+  "specialties": ["عينية"],
+  "source": "AAO — Conjunctivitis Preferred Practice Pattern",
+  "note": null,
+  "translation_reviewed": true
+}

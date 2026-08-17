@@ -1,0 +1,9 @@
+{
+  "name": "Pinworm Infection",
+  "name_ar": "الديدان السرمية",
+  "symptoms": ["حكة شرجية", "اضطراب نوم", "تهيج"],
+  "specialties": ["أطفال", "هضمية"],
+  "source": "CDC Pinworm Infection FAQs",
+  "note": null,
+  "translation_reviewed": true
+}

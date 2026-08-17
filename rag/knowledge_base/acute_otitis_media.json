@@ -1,0 +1,9 @@
+{
+  "name": "Acute Otitis Media",
+  "name_ar": "التهاب الأذن الوسطى الحاد",
+  "symptoms": ["ألم أذن", "حمى", "فقدان سمع"],
+  "specialties": ["أنف وأذن وحنجرة"],
+  "source": "AAP/AAFP Clinical Practice Guideline: Acute Otitis Media",
+  "note": null,
+  "translation_reviewed": true
+}

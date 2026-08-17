@@ -1,0 +1,34 @@
+# Secrets — never commit. .env.example documents the required variables.
+.env
+.env.*
+!.env.example
+
+# Audit logs — these contain patient data (raw Arabic symptom descriptions
+# plus thread_id) and are handled like medical records. See CLAUDE.md >
+# Audit logs and patient data. The current sink is stdlib logging, which
+# writes nowhere by default; these patterns are here so that adding a file
+# handler later cannot accidentally commit patient data.
+logs/
+audit_logs/
+audit/logs/
+*.log
+*.log.*
+*.jsonl
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Tooling
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Editors / OS
+.DS_Store
+Thumbs.db
