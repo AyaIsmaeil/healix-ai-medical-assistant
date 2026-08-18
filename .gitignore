@@ -35,3 +35,4 @@ Thumbs.db
 
 # Local Claude Code instructions — not tracked
 CLAUDE.md
+healix_checkpoints.sqlite*
