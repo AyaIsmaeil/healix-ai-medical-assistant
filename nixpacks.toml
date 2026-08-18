@@ -1,0 +1,8 @@
+# Railway (Nixpacks) build config.
+# ffmpeg is required by speech_client.py to decode audio formats the
+# browser sends (e.g. webm) that faster-whisper cannot read natively —
+# see speech_client.py's own module docstring. Without this, POST
+# /speech/transcribe fails at request time even though the rest of the
+# service works fine (ffmpeg is only touched inside that one endpoint).
+[phases.setup]
+aptPkgs = ["ffmpeg"]
