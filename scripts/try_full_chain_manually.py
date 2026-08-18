@@ -82,6 +82,7 @@ def _print_candidate_diseases(candidates: list[dict]) -> None:
         print(f"        missing symptoms: {missing}")
         if candidate["negated_symptoms"]:
             print(f"        negated symptoms: {'، '.join(candidate['negated_symptoms'])}")
+        print(f"        ml_corroboration: {candidate.get('ml_corroboration', '(absent)')}")
 
 
 def _print_diagnosis(diagnosis: dict | None) -> None:
@@ -102,6 +103,7 @@ def _print_diagnosis(diagnosis: dict | None) -> None:
             f"      - {entry['name']}  "
             f"(match_score={entry['match_score']}, certainty={entry['certainty']})"
         )
+        print(f"          ml_corroboration: {entry.get('ml_corroboration', '(absent)')}")
 
 
 def _latest_assistant_reply(messages: list[dict]) -> str | None:
