@@ -3,10 +3,9 @@ directly, against whatever LLM provider/model is currently configured for
 the "quality" tier in .env.
 
 *** This is NOT part of the pytest suite and must never be added to it. ***
-extract_symptoms isn't wired into graph.py yet (CLAUDE.md > Working
-style: one node at a time), so this calls the node function directly
-against a hand-built state rather than invoking a compiled graph — no
-checkpointer involved at all. Run it by hand:
+This calls extract_symptoms directly against a hand-built state rather
+than invoking the compiled graph — useful for isolating one LLM call.
+Run it by hand:
 
     python scripts/try_extract_manually.py "عندي صداع وحرارة من يومين، بس ما عندي سعال"
     python scripts/try_extract_manually.py "..." --yes   # skip the confirmation

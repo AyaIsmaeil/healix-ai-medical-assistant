@@ -96,16 +96,23 @@ def normalize(text: str) -> str:
 
 # --- pattern data ------------------------------------------------------
 #
-# *** PLACEHOLDER DATA — DO NOT DEPLOY AS-IS ***
+# Syrian colloquial phrases in NORMALIZED form (see "How to write a pattern"
+# below). Each category is an alternation of full phrases — not single
+# keywords — to keep recall high while limiting obvious false positives.
 #
-# The entries below only demonstrate the shape of a CrisisPattern. They are
-# deliberately inert (they match a literal marker string, not real speech)
-# so this module fails safe — silent, obvious non-coverage — rather than
-# giving false confidence from an incomplete list that "looks real."
+# Sources for this initial set:
+#   - phrases already used as crisis examples across tests and scripts
+#     (e.g. "بدي موت" in tests/unit/test_graph.py, test_nodes_crisis_node.py)
+#   - common Syrian-chat expressions for the three categories named in
+#     schemas/crisis.py and prompts/templates/crisis_check.txt
 #
-# This list MUST be reviewed and completed by someone with both clinical
-# mental-health expertise and fluency in Syrian colloquial Arabic before
-# rules/crisis.py is trusted for real patient messages.
+# *** STILL NEEDS CLINICAL REVIEW before production deployment ***
+# This replaces the previous inert PLACEHOLDER_* regexes with real speech,
+# but a mental-health clinician fluent in Syrian dialect should still review,
+# expand, and tune against real chat data — same bar as rules/red_flags.py.
+#
+# Bias toward false positives: a missed crisis is unacceptable; a false
+# positive costs one gentle redirect message (see module docstring).
 #
 # --- How to write a pattern (read this before editing) -----------------
 #
@@ -150,40 +157,81 @@ class CrisisPattern:
     pattern: re.Pattern[str]
 
 
-CRISIS_PATTERNS: tuple[CrisisPattern, ...] = (
-    # TODO(mental-health-review): replace with real, reviewed patterns.
-    CrisisPattern("suicidal_ideation", re.compile(r"PLACEHOLDER_SUICIDAL_IDEATION")),
-    CrisisPattern("self_harm_intent", re.compile(r"PLACEHOLDER_SELF_HARM_INTENT")),
-    CrisisPattern("hopelessness_severe", re.compile(r"PLACEHOLDER_HOPELESSNESS_SEVERE")),
-)
-
-
-def _validate_patterns_are_normalized(patterns: tuple[CrisisPattern, ...]) -> None:
-    """Fail fast if a pattern isn't written the way normalize() would write it.
-
-    Every pattern is matched against normalize(message), never against the
-    raw message. A pattern that still has e.g. أ where normalize() would
-    produce ا will therefore never match anything — silently, with every
-    test still green, because there's nothing in the pattern's own text
-    to say it's wrong. This runs at import time so that mistake surfaces
-    immediately instead of showing up as a missed crisis later.
-    """
+def _validate_phrases_are_normalized(phrases: frozenset[str]) -> None:
+    """Fail fast if a phrase isn't written the way normalize() would write it."""
     problems = []
-    for crisis_pattern in patterns:
-        written = crisis_pattern.pattern.pattern
-        should_be = normalize(written)
-        if written != should_be:
-            problems.append(f"  [{crisis_pattern.category}] wrote {written!r}, should be {should_be!r}")
-
+    for phrase in phrases:
+        should_be = normalize(phrase)
+        if phrase != should_be:
+            problems.append(f"  wrote {phrase!r}, should be {should_be!r}")
     if problems:
         raise ValueError(
-            "CRISIS_PATTERNS has pattern(s) not written in normalized form "
+            "CRISIS phrase(s) not written in normalized form "
             "(see 'How to write a pattern' above rules/crisis.py:CRISIS_PATTERNS):\n"
             + "\n".join(problems)
         )
 
 
-_validate_patterns_are_normalized(CRISIS_PATTERNS)
+def _compile_phrase_pattern(phrases: frozenset[str]) -> re.Pattern[str]:
+    """Build a single alternation regex over normalized full phrases."""
+    _validate_phrases_are_normalized(phrases)
+    alternatives = "|".join(re.escape(phrase) for phrase in sorted(phrases))
+    return re.compile(alternatives)
+
+
+# Backward-compatible alias for any caller that still imports the old name.
+_validate_patterns_are_normalized = _validate_phrases_are_normalized
+
+
+_CRISIS_PHRASES: dict[str, frozenset[str]] = {
+    "suicidal_ideation": frozenset(
+        {
+            "بدي موت",
+            "بدي اموت",
+            "بدي انتحر",
+            "بدي انتحار",
+            "بدي اقتل حالي",
+            "بدي اقتل نفسي",
+            "بدي انهي حياتي",
+            "ما بدي عيش",
+            "ما بدي انا عيش",
+            "رح انتحر",
+            "رح اقتل حالي",
+            "رح اموت",
+        }
+    ),
+    "self_harm_intent": frozenset(
+        {
+            "بدي اجرح حالي",
+            "بدي اجرح نفسي",
+            "بدي اوذي حالي",
+            "بدي اوذي نفسي",
+            "بدي اذبح حالي",
+            "بدي اقطع حالي",
+            "بدي اقطع وريدي",
+            "رح اجرح حالي",
+            "رح اوذي حالي",
+        }
+    ),
+    "hopelessness_severe": frozenset(
+        {
+            "ما في فايده",
+            "ما في اميد",
+            "ما في امل",
+            "الحياه ما تستاهل",
+            "ما بدي اكمل",
+            "ما بدي استمر",
+            "خلص تعبت من الحياه",
+            "ما الها لزوم",
+            "ما في طريقه",
+        }
+    ),
+}
+
+CRISIS_PATTERNS: tuple[CrisisPattern, ...] = tuple(
+    CrisisPattern(category, _compile_phrase_pattern(phrases))
+    for category, phrases in _CRISIS_PHRASES.items()
+)
 
 
 # --- matching ------------------------------------------------------------

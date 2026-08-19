@@ -17,11 +17,11 @@ def _clear_cache():
 def test_load_bundle_loads_the_real_vendored_bundle():
     bundle = load_bundle()
 
-    assert bundle.metadata["n_features"] == 131
-    assert bundle.metadata["n_classes"] == 41
-    assert len(bundle.feature_order) == 131
-    assert bundle.model.n_features_in_ == 131
-    assert len(bundle.label_encoder.classes_) == 41
+    assert bundle.metadata["n_features"] == 98
+    assert bundle.metadata["n_classes"] == 49
+    assert len(bundle.feature_order) == 98
+    assert bundle.model.n_features_in_ == 98
+    assert len(bundle.label_encoder.classes_) == 49
 
 
 def test_load_bundle_caches_after_first_call():
@@ -103,4 +103,4 @@ def test_load_bundle_never_caches_a_failed_load(tmp_path):
     # load against a broken temp directory must not have poisoned the
     # module-level cache for the real BUNDLE_DIR.
     bundle = load_bundle()
-    assert bundle.metadata["n_features"] == 131
+    assert bundle.metadata["n_features"] == 98

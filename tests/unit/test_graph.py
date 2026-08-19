@@ -763,28 +763,35 @@ def test_invoking_the_graph_full_chain_reaches_a_migraine_diagnosis():
         conn.close()
 
 
-def test_invoking_the_graph_full_chain_produces_an_ml_corroboration_signal_for_hypertension():
-    # Real, fully unmocked ml_corroborate (real vendored bundle, real
-    # feature_mapper, real density_floor) — only the LLM boundary is
-    # faked, same discipline as the migraine test above. Chosen
-    # deliberately: rag/knowledge_base/hypertension.json's own symptom
-    # list is exactly {"صداع", "دوخة"} (CLAUDE.md > State's own
-    # documented example of a short KB entry), which is also exactly
-    # enough to clear ml.density_floor's MIN_REQUIRED_MATCHED=2 for
-    # Hypertension (chest_pain/dizziness/headache/loss_of_balance) via
-    # headache+dizziness alone — verified directly against the real
-    # model during this feature's audit that this specific pair's
-    # predict_proba() argmax really is Hypertension itself (CLAUDE.md's
-    # XGBoost corroboration-signal section, the sparse-input finding).
-    hypertension_symptoms = [normalize("صداع"), normalize("دوخة")]
+def test_invoking_the_graph_full_chain_produces_an_ml_corroboration_signal_for_uti():
+    # Real, fully unmocked ml_corroborate (real ml/models/xgboost-healix-
+    # arabic-v1.0/ bundle, real feature_mapper, real density_floor) — only
+    # the LLM boundary is faked, same discipline as the migraine test
+    # above. Chosen deliberately: Urinary Tract Infection was the earlier
+    # (Kaggle-trained) bundle's documented worst case — its old
+    # ml.density_floor entry had exactly one Arabic-mappable feature and
+    # could never clear MIN_REQUIRED_MATCHED=2 at all. This bundle was
+    # retrained on rag/knowledge_base/ + webteb.com data filtered to
+    # canonical vocabulary only, and UTI now has four mappable expected
+    # features; verified directly against the real model that this exact
+    # four-symptom combination clears the density floor AND is the
+    # model's own argmax.
+    uti_symptoms = [
+        normalize("تبول متكرر"),
+        normalize("حرقة عند التبول"),
+        normalize("حمى"),
+        normalize("ألم أسفل البطن"),
+    ]
     set_provider(
         FakeProvider(
             responses=[
                 _crisis_check_response(False),
-                _extract_symptoms_response(symptoms=[{"name": n} for n in hypertension_symptoms]),
+                _extract_symptoms_response(symptoms=[{"name": n} for n in uti_symptoms]),
                 _check_red_flags_response(False),
                 _sufficiency_response(True),
-                _diagnose_response("differential", differential=["Hypertension"], reasoning="تطابق"),
+                _diagnose_response(
+                    "differential", differential=["Urinary Tract Infection"], reasoning="تطابق"
+                ),
             ]
         )
     )
@@ -794,12 +801,17 @@ def test_invoking_the_graph_full_chain_produces_an_ml_corroboration_signal_for_h
         result = compiled.invoke(
             {
                 "thread_id": "t1",
-                "messages": [{"role": "user", "content": "عندي صداع ودوخة"}],
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": "عندي تبول متكرر وحرقة عند التبول وحمى وألم أسفل البطن",
+                    }
+                ],
             },
             config={"configurable": {"thread_id": "t1"}},
         )
 
-        assert result["candidate_diseases"][0]["name"] == "Hypertension"
+        assert result["candidate_diseases"][0]["name"] == "Urinary Tract Infection"
         assert result["candidate_diseases"][0]["ml_corroboration"] == "model_signal_present"
         # Carried through diagnose unchanged.
         assert result["diagnosis"]["differential"][0]["ml_corroboration"] == "model_signal_present"
@@ -812,10 +824,18 @@ def test_invoking_the_graph_full_chain_produces_an_ml_corroboration_signal_for_h
         conn.close()
 
 
-def test_invoking_the_graph_produces_no_ml_corroboration_for_a_disease_outside_the_crosswalk():
-    # Dysmenorrhea has no ml.disease_crosswalk entry at all — proves the
-    # common case (no crosswalk match) completes normally with no signal
-    # and no error, real ml_corroborate included in the path.
+def test_invoking_the_graph_produces_no_ml_corroboration_when_the_model_disagrees():
+    # Unlike the earlier (13/49-disease) bundle, Dysmenorrhea DOES have an
+    # ml.disease_crosswalk entry now — this bundle covers all 49 RAG
+    # diseases. This case is kept because it still demonstrates a real "no
+    # signal" outcome: verified directly against the real model that this
+    # exact symptom set clears ml.density_floor's Dysmenorrhea entry
+    # (>= MIN_REQUIRED_MATCHED overlap), but the model's own argmax for
+    # this feature vector is Acute Gastroenteritis, not Dysmenorrhea — the
+    # rank-agreement gate correctly suppresses the signal even though the
+    # density gate cleared. Proves the two-gate design still works with
+    # every candidate now crosswalk-covered, not just the "no crosswalk
+    # entry" early exit.
     dysmenorrhea_symptoms = [
         normalize("الم بطن"),
         normalize("الم اسفل الظهر"),
