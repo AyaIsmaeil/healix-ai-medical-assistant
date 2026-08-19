@@ -16,10 +16,8 @@ directly here, not graph.build_checkpointer() — a one-off manual run has
 no business writing into whatever HEALIX_POSTGRES_DSN / HEALIX_SQLITE_PATH
 point at in .env.
 
-See scripts/try_extract_manually.py for the same idea against
-extract_symptoms — a separate script, not a flag on this one, because
-that node isn't wired into graph.py yet and is called directly instead of
-through a compiled graph.
+See scripts/try_extract_manually.py for calling a single node directly
+without going through the full graph.
 """
 
 from __future__ import annotations

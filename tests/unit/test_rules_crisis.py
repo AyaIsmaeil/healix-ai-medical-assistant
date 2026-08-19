@@ -5,15 +5,14 @@ import pytest
 from rules.crisis import (
     CRISIS_PATTERNS,
     CrisisPattern,
-    _validate_patterns_are_normalized,
+    _validate_phrases_are_normalized,
     detect_crisis,
     normalize,
 )
 
-# All test strings below are ordinary, non-crisis Arabic — greetings,
-# weather, symptom mentions, and everyday chatter. None of this exercises
-# CRISIS_PATTERNS content (it's placeholder data); these tests only cover
-# the normalization pipeline and the matching plumbing around it.
+# All test strings below include ordinary, non-crisis Arabic unless noted.
+# Crisis phrase tests use real Syrian colloquial already present in this
+# project's fixtures (e.g. "بدي موت" in test_graph.py).
 
 
 def test_normalize_strips_diacritics():
@@ -92,28 +91,27 @@ def test_detect_crisis_no_match_on_ordinary_symptom_text():
     assert result.categories == ()
 
 
-def test_detect_crisis_matches_and_reports_category():
-    # CRISIS_PATTERNS is placeholder data (see rules/crisis.py) — this
-    # exercises the matching plumbing using the placeholder marker itself,
-    # not real crisis content, since none exists yet.
-    placeholder = CRISIS_PATTERNS[0]
-
-    result = detect_crisis(placeholder.pattern.pattern)
+def test_detect_crisis_matches_suicidal_phrase_used_in_project_fixtures():
+    result = detect_crisis("بدي موت")
 
     assert result.matched is True
-    assert result.categories == (placeholder.category,)
+    assert result.categories == ("suicidal_ideation",)
+
+
+def test_detect_crisis_matches_hopelessness_phrase():
+    result = detect_crisis("ما في فايده")
+
+    assert result.matched is True
+    assert result.categories == ("hopelessness_severe",)
 
 
 def test_detect_crisis_reports_every_category_that_matched():
-    # A message can plausibly hit more than one pattern; the result must
+    # A message can plausibly hit more than one category; the result must
     # not silently drop down to whichever one happened to match first.
-    first, second = CRISIS_PATTERNS[0], CRISIS_PATTERNS[1]
-    message = f"{first.pattern.pattern} {second.pattern.pattern}"
-
-    result = detect_crisis(message)
+    result = detect_crisis("بدي موت، ما في فايده")
 
     assert result.matched is True
-    assert result.categories == (first.category, second.category)
+    assert result.categories == ("suicidal_ideation", "hopelessness_severe")
 
 
 def test_detect_crisis_deduplicates_repeated_categories(monkeypatch):
@@ -130,25 +128,23 @@ def test_detect_crisis_deduplicates_repeated_categories(monkeypatch):
     assert result.categories == ("shared_category",)
 
 
-def test_validate_patterns_are_normalized_rejects_unnormalized_pattern():
+def test_validate_phrases_are_normalized_rejects_unnormalized_phrase():
     # "أنا بخير" ("I'm fine") — ordinary, benign text, chosen only because
     # it contains أ, which normalize() would fold to ا. This is not real
-    # crisis content; it just needs to be a pattern normalize() changes.
-    unnormalized = (CrisisPattern("example_category", re.compile("أنا بخير")),)
-
-    with pytest.raises(ValueError, match="example_category"):
-        _validate_patterns_are_normalized(unnormalized)
+    # crisis content; it just needs to be a phrase normalize() changes.
+    with pytest.raises(ValueError, match="انا بخير"):
+        _validate_phrases_are_normalized(frozenset({"أنا بخير"}))
 
 
-def test_validate_patterns_are_normalized_accepts_already_normalized_pattern():
-    already_normalized = (CrisisPattern("example_category", re.compile("انا بخير")),)
-
-    _validate_patterns_are_normalized(already_normalized)  # must not raise
+def test_validate_phrases_are_normalized_accepts_already_normalized_phrase():
+    _validate_phrases_are_normalized(frozenset({"انا بخير"}))  # must not raise
 
 
-def test_crisis_patterns_constant_passes_its_own_normalization_guard():
-    # Guards against a future edit reintroducing an un-normalized pattern
-    # into CRISIS_PATTERNS without anyone noticing until it silently fails
-    # to match in production. (Also proven by the fact that importing
-    # rules.crisis at all didn't raise — this makes it an explicit test.)
-    _validate_patterns_are_normalized(CRISIS_PATTERNS)
+def test_crisis_phrases_pass_normalization_guard():
+    # Guards against a future edit reintroducing an un-normalized phrase
+    # into _CRISIS_PHRASES without anyone noticing until it silently fails
+    # to match in production.
+    from rules import crisis as crisis_module
+
+    for phrases in crisis_module._CRISIS_PHRASES.values():
+        _validate_phrases_are_normalized(phrases)

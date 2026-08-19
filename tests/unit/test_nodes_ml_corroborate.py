@@ -29,10 +29,14 @@ class _FakeBundle:
         self.label_encoder = _FakeLabelEncoder(classes)
 
 
-# Same order as ml.density_floor.EXPECTED_FEATURES_BY_DISEASE["Hypertension"]
-# would expect an overlap against: chest_pain, dizziness, headache, loss_of_balance.
-_CLASSES = ("Hypertension", "Migraine", "Bronchial Asthma")
-_FEATURE_ORDER = ("chest_pain", "dizziness", "headache", "loss_of_balance", "cough", "nausea")
+# Real normalized (rules.crisis.normalize) canonical Arabic terms — the new
+# bundle's columns and class labels are identity matches to
+# vocabulary/symptoms.py and rag/knowledge_base/ names respectively, no
+# translation layer to fake around anymore.
+# Same overlap ml.density_floor.EXPECTED_FEATURES_BY_DISEASE["Hypertension"]
+# expects: {"دوخه", "صداع"}.
+_CLASSES = ("Hypertension", "Migraine", "Asthma")
+_FEATURE_ORDER = ("دوخه", "صداع", "سعال", "ضيق بالصدر", "الم في الصدر", "غثيان")
 
 
 def _bundle_with_hypertension_as_argmax():
@@ -86,7 +90,7 @@ def test_mapped_candidate_clearing_both_gates_gets_the_signal(monkeypatch):
         ml_corroborate_module, "load_bundle", _bundle_with_hypertension_as_argmax
     )
     state = _state(
-        symptoms=["ألم في الصدر", "دوخة", "صداع"],  # chest_pain, dizziness, headache — 3 overlap
+        symptoms=["دوخة", "صداع"],  # both of Hypertension's expected features
         candidate_diseases=[_candidate("Hypertension")],
     )
 
@@ -104,7 +108,7 @@ def test_candidate_with_no_crosswalk_entry_never_gets_a_signal(monkeypatch):
     )
     state = _state(
         symptoms=["ألم أسفل الظهر"],
-        candidate_diseases=[_candidate("Dysmenorrhea")],  # not in the crosswalk
+        candidate_diseases=[_candidate("Not A Real RAG Disease")],  # not in the crosswalk
     )
 
     result = ml_corroborate(state)
@@ -118,7 +122,7 @@ def test_never_introduces_a_new_candidate(monkeypatch):
         ml_corroborate_module, "load_bundle", _bundle_with_hypertension_as_argmax
     )
     state = _state(
-        symptoms=["ألم في الصدر", "دوخة", "صداع"],
+        symptoms=["دوخة", "صداع"],
         candidate_diseases=[_candidate("Hypertension"), _candidate("Migraine")],
     )
 
@@ -134,7 +138,7 @@ def test_model_load_failure_fails_open(monkeypatch):
 
     monkeypatch.setattr(ml_corroborate_module, "load_bundle", _raise)
     state = _state(
-        symptoms=["ألم في الصدر", "دوخة", "صداع"],
+        symptoms=["دوخة", "صداع"],
         candidate_diseases=[_candidate("Hypertension")],
     )
 
@@ -153,7 +157,7 @@ def test_predict_proba_failure_fails_open(monkeypatch):
     monkeypatch.setattr(ml_corroborate_module, "load_bundle", lambda: bundle)
 
     state = _state(
-        symptoms=["ألم في الصدر", "دوخة", "صداع"],
+        symptoms=["دوخة", "صداع"],
         candidate_diseases=[_candidate("Hypertension")],
     )
 
@@ -166,7 +170,7 @@ def test_density_floor_not_cleared_suppresses_the_signal_even_with_argmax_agreem
     monkeypatch.setattr(
         ml_corroborate_module, "load_bundle", _bundle_with_hypertension_as_argmax
     )
-    # Only ONE Hypertension-relevant feature present (headache) — below
+    # Only ONE Hypertension-relevant feature present ("صداع") — below
     # ml.density_floor.MIN_REQUIRED_MATCHED=2, even though the model's
     # own top pick still happens to be Hypertension.
     state = _state(
@@ -182,7 +186,7 @@ def test_density_floor_not_cleared_suppresses_the_signal_even_with_argmax_agreem
 def test_rank_disagreement_suppresses_the_signal_even_with_density_floor_cleared(monkeypatch):
     monkeypatch.setattr(ml_corroborate_module, "load_bundle", _bundle_with_migraine_as_argmax)
     state = _state(
-        symptoms=["ألم في الصدر", "دوخة", "صداع"],  # clears Hypertension's floor
+        symptoms=["دوخة", "صداع"],  # clears Hypertension's floor
         candidate_diseases=[_candidate("Hypertension")],  # but Migraine is the model's argmax
     )
 
@@ -195,7 +199,7 @@ def test_feature_vector_passed_to_predict_proba_matches_bundle_feature_order_len
     bundle = _bundle_with_hypertension_as_argmax()
     monkeypatch.setattr(ml_corroborate_module, "load_bundle", lambda: bundle)
     state = _state(
-        symptoms=["ألم في الصدر", "دوخة", "صداع"],
+        symptoms=["دوخة", "صداع"],
         candidate_diseases=[_candidate("Hypertension")],
     )
 
