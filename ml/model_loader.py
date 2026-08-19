@@ -1,13 +1,16 @@
-"""model_loader: loads the vendored XGBoost disease-prediction bundle
-(ml/models/xgboost-symptom-checklist-v1.0-aca19e97690a/) and verifies its
-integrity before anything in this package trusts it.
+"""model_loader: loads the XGBoost disease-prediction bundle
+(ml/models/xgboost-healix-arabic-v1.0/) and verifies its integrity before
+anything in this package trusts it.
 
-This bundle is a read-only copy vendored from a separate, independent
-project (C:\\healix-ai-medical-assistant) — see CLAUDE.md's XGBoost
-corroboration-signal section for the full provenance and the audit that
-verified it. This module owns nothing about disease/feature semantics;
-that is nodes.ml_corroborate's job. It only answers "is this bundle the
-one it claims to be, and internally consistent."
+Unlike the earlier vendored bundle this replaces, this one is first-party:
+produced in-repo by ml/training/disease_symptom_checklist_training.ipynb
+directly from rag/knowledge_base/*.json (plus a supplementary webteb.com
+scrape), synthetic symptom combinations filtered to
+vocabulary/symptoms.py's canonical Arabic terms only. See that notebook
+and CLAUDE.md's XGBoost corroboration-signal section for the full
+provenance. This module still owns nothing about disease/feature
+semantics; that is nodes.ml_corroborate's job. It only answers "is this
+bundle the one it claims to be, and internally consistent."
 
 --- Fails loudly, once, on first use ---
 
@@ -52,7 +55,7 @@ from typing import Any
 
 import joblib
 
-BUNDLE_DIR = Path(__file__).parent / "models" / "xgboost-symptom-checklist-v1.0-aca19e97690a"
+BUNDLE_DIR = Path(__file__).parent / "models" / "xgboost-healix-arabic-v1.0"
 
 
 class MLModelError(Exception):

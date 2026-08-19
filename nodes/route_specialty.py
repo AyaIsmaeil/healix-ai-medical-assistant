@@ -1,7 +1,7 @@
 """route_specialty: derives state["specialty"] from diagnose's ranked
 differential (CLAUDE.md > Graph flow: runs after diagnose, before
-generate_reports — neither route_specialty nor generate_reports is wired
-into graph.py yet, per CLAUDE.md > Working style: one node at a time).
+generate_reports — wired in graph.py as diagnose -> route_specialty ->
+generate_reports).
 
 No LLM call: rag/knowledge_base/*.json entries already carry a
 specialties field. It's propagated unchanged through
@@ -48,10 +48,10 @@ aggregate across every candidate in the differential. Two reasons:
 
 Nothing is actually lost by this choice: the full differential, with
 every candidate's own specialties, stays exactly where diagnose() put
-it in state["diagnosis"] — generate_reports (not built yet) can still
-draw on lower-ranked candidates' specialties for an "also consider"
-note in a richer report. This field just doesn't encode that; it
-encodes the one routing recommendation.
+it in state["diagnosis"] — generate_reports draws on lower-ranked
+candidates' specialties for an "also consider" note when relevant.
+This field just doesn't encode that; it encodes the one routing
+recommendation.
 
 --- Two specialty fields, not one: state["specialty"] (this node's
 original output, unchanged by anything below) is the KB's own

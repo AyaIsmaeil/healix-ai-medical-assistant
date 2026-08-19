@@ -1,7 +1,6 @@
 """generate_reports: the terminal node for the differential-diagnosis
-branch (CLAUDE.md > Graph flow: runs after route_specialty; not wired
-into graph.py in this change — CLAUDE.md > Working style: one node at a
-time, same precedent as route_specialty itself when it was first built).
+branch (CLAUDE.md > Graph flow: runs after route_specialty — wired in
+graph.py as route_specialty -> generate_reports -> END).
 
 No LLM call. Every fact in both reports is already sitting in state by
 the time this node runs — rag_retrieve computed match_score, diagnose

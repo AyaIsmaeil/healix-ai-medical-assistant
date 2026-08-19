@@ -3,20 +3,19 @@ from ml.density_floor import (
     MIN_REQUIRED_MATCHED,
     clears_density_floor,
 )
-from ml.disease_crosswalk import DISEASE_CROSSWALK
+from ml.disease_crosswalk import XGBOOST_COVERED_DISEASES
 from ml.feature_mapper import mapped_features
 from ml.model_loader import load_bundle
 
 
-def test_every_disease_here_is_a_real_crosswalk_entry():
+def test_every_disease_here_is_a_real_covered_disease():
     for rag_name in EXPECTED_FEATURES_BY_DISEASE:
-        assert rag_name in DISEASE_CROSSWALK
+        assert rag_name in XGBOOST_COVERED_DISEASES
 
 
-def test_every_crosswalk_disease_has_a_density_floor_entry():
-    # No silent gap — every crosswalked disease was actually analyzed,
-    # even if (like UTI) its resulting set is tiny.
-    for rag_name in DISEASE_CROSSWALK:
+def test_every_covered_disease_has_a_density_floor_entry():
+    # No silent gap — every covered disease was actually analyzed.
+    for rag_name in XGBOOST_COVERED_DISEASES:
         assert rag_name in EXPECTED_FEATURES_BY_DISEASE
 
 
@@ -36,24 +35,33 @@ def test_min_required_matched_is_two_same_as_rag_retrieve_precedent():
     assert MIN_REQUIRED_MATCHED == 2
 
 
+def test_no_disease_is_structurally_stuck_below_the_floor():
+    # Unlike the earlier bundle (Urinary Tract Infection had exactly one
+    # mappable feature and could never clear MIN_REQUIRED_MATCHED=2), this
+    # bundle was trained entirely on canonical-vocabulary terms, so every
+    # disease has at least MIN_REQUIRED_MATCHED expected features.
+    for disease, features in EXPECTED_FEATURES_BY_DISEASE.items():
+        assert len(features) >= MIN_REQUIRED_MATCHED, disease
+
+
 def test_clears_density_floor_true_when_enough_overlap():
-    active = frozenset({"chest_pain", "dizziness", "headache"})
+    active = frozenset({"دوخه", "صداع", "غثيان"})
     assert clears_density_floor("Hypertension", active) is True
 
 
 def test_clears_density_floor_false_with_only_one_matching_feature():
-    active = frozenset({"headache", "cough", "nausea"})  # only "headache" overlaps Hypertension
+    active = frozenset({"صداع", "سعال", "تقيؤ"})  # only "صداع" overlaps Hypertension
     assert clears_density_floor("Hypertension", active) is False
 
 
 def test_clears_density_floor_false_for_a_disease_with_no_entry():
-    assert clears_density_floor("Dysmenorrhea", frozenset({"itching"})) is False
+    assert clears_density_floor("Not A Real Disease", frozenset({"حكه"})) is False
 
 
-def test_urinary_tract_infection_can_never_clear_the_floor_today():
-    # Documented, expected limitation (module docstring) — pinned so a
-    # silent change to feature_mapper coverage is caught, not missed.
-    assert len(EXPECTED_FEATURES_BY_DISEASE["Urinary Tract Infection"]) == 1
+def test_urinary_tract_infection_now_clears_the_floor():
+    # Documented improvement over the earlier bundle (that module's old
+    # docstring): this bundle's UTI has four mappable features, so a
+    # realistic two-symptom overlap now clears the gate.
     assert clears_density_floor(
-        "Urinary Tract Infection", frozenset({"burning_micturition"})
-    ) is False
+        "Urinary Tract Infection", frozenset({"تبول متكرر", "حرقه عند التبول"})
+    ) is True

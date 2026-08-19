@@ -1,44 +1,37 @@
-from ml.disease_crosswalk import DISEASE_CROSSWALK, xgboost_label_for
+from ml.disease_crosswalk import XGBOOST_COVERED_DISEASES, xgboost_label_for
 from ml.model_loader import load_bundle
 from rag.schema import load_all
 
 
-def test_every_rag_side_key_is_a_real_knowledge_base_disease_name():
+def test_every_covered_disease_is_a_real_knowledge_base_disease_name():
     real_names = {entry.name for entry in load_all()}
-    for rag_name in DISEASE_CROSSWALK:
+    for rag_name in XGBOOST_COVERED_DISEASES:
         assert rag_name in real_names, f"{rag_name!r} is not a real rag/knowledge_base/ name"
 
 
-def test_every_xgboost_side_value_is_a_real_model_class_label():
+def test_every_covered_disease_is_a_real_xgboost_class_label():
     real_labels = set(load_bundle().label_encoder.classes_)
-    for xgb_label in DISEASE_CROSSWALK.values():
-        assert xgb_label in real_labels, f"{xgb_label!r} is not a real XGBoost class label"
+    for rag_name in XGBOOST_COVERED_DISEASES:
+        assert rag_name in real_labels, f"{rag_name!r} is not a real XGBoost class label"
 
 
-def test_no_duplicate_xgboost_labels_across_different_rag_diseases():
-    # Two different RAG diseases silently pointing at the same XGBoost
-    # class would make the corroboration signal ambiguous about which
-    # RAG candidate it actually supports.
-    labels = list(DISEASE_CROSSWALK.values())
-    assert len(labels) == len(set(labels))
+def test_coverage_is_exactly_the_bundles_real_class_set():
+    # This bundle was trained directly on rag/knowledge_base/ names as
+    # class labels, so coverage should equal the label encoder exactly,
+    # not merely be a subset of it.
+    real_labels = set(load_bundle().label_encoder.classes_)
+    assert XGBOOST_COVERED_DISEASES == real_labels
 
 
-def test_the_three_investigated_and_excluded_pairs_stay_excluded():
-    # Confirms the exclusion was a real decision, not silently reversed
-    # by a later edit. See module docstring for why each is ambiguous.
-    assert "Type 2 Diabetes" not in DISEASE_CROSSWALK
-    assert "Allergic Rhinitis" not in DISEASE_CROSSWALK
-    assert "Rheumatoid Arthritis" not in DISEASE_CROSSWALK
+def test_covers_all_forty_nine_rag_diseases():
+    real_names = {entry.name for entry in load_all()}
+    assert XGBOOST_COVERED_DISEASES == real_names
 
 
-def test_crosswalk_has_exactly_thirteen_pairs():
-    assert len(DISEASE_CROSSWALK) == 13
+def test_xgboost_label_for_returns_none_for_a_disease_with_no_coverage():
+    assert xgboost_label_for("Not A Real Disease") is None
 
 
-def test_xgboost_label_for_returns_none_for_a_disease_with_no_crosswalk_entry():
-    assert xgboost_label_for("Dysmenorrhea") is None
-
-
-def test_xgboost_label_for_returns_the_mapped_label():
+def test_xgboost_label_for_returns_the_same_name_identity():
     assert xgboost_label_for("Hypertension") == "Hypertension"
-    assert xgboost_label_for("Peptic Ulcer Disease") == "Peptic ulcer diseae"
+    assert xgboost_label_for("Peptic Ulcer Disease") == "Peptic Ulcer Disease"
