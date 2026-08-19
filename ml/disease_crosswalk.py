@@ -1,65 +1,94 @@
 """disease_crosswalk: the ONLY place a rag/knowledge_base/ disease name is
-paired with an XGBoost class label.
+confirmed as having a class in the vendored XGBoost bundle.
 
-Hand-authored, no fuzzy/semantic matching — same "explicit list, never
-guessed" discipline as vocabulary/symptoms.py. Every pair below was
-verified directly against the real vendored bundle during this feature's
-audit (loaded label_encoder.classes_ directly, not inferred from training
-code), and against the real rag/knowledge_base/*.json `name` fields — see
-tests/unit/test_ml_disease_crosswalk.py, which re-verifies both sides
-against the live files rather than trusting this dict blindly.
+--- Identity, not translation ---
 
-Only 13 of the RAG knowledge base's 49 diseases have a class in the
-XGBoost model's 41-class space that is unambiguously the same condition.
-Three further candidate pairs were investigated and deliberately
-EXCLUDED as too ambiguous to trust for a doctor-facing signal:
+ml/models/xgboost-healix-arabic-v1.0/ was trained directly on
+rag/knowledge_base/*.json's own `name` fields as class labels (see
+ml/training/disease_symptom_checklist_training.ipynb) — there is no
+separate, differently-labeled dataset to cross-reference anymore. All 49
+RAG diseases have a class in this bundle; label_encoder.classes_ is
+verified identical to {entry.name for entry in rag.schema.load_all()} by
+tests/unit/test_ml_disease_crosswalk.py, which loads the real bundle and
+the real knowledge base rather than trusting this list blindly.
 
-  - Type 2 Diabetes <-> "Diabetes": the source dataset never
-    distinguishes Type 1 from Type 2 (confirmed: no "Type 2 Diabetes"
-    class exists, only the generic "Diabetes").
-  - Allergic Rhinitis <-> "Allergy": too broad — the model's "Allergy"
-    class is a generic allergic-reaction bucket, not specifically
-    allergic rhinitis.
-  - Rheumatoid Arthritis <-> "Arthritis": the model has a SEPARATE
-    "Osteoarthristis" class, confirming "Arthritis" means something
-    else in this dataset, not rheumatoid arthritis specifically.
+XGBOOST_COVERED_DISEASES is still a hand-typed, frozen constant — not a
+live label_encoder.classes_ read on the hot path — same "explicit,
+reviewed, no live re-derivation" discipline as
+ml.density_floor.EXPECTED_FEATURES_BY_DISEASE. Keeping it frozen also
+keeps nodes.ml_corroborate's early exit ("no candidate has ML coverage,
+never load the 6MB bundle") cheap.
 
-A wrong pairing here is worse than a missing one: it would make
-nodes.ml_corroborate silently corroborate (or fail to corroborate) the
-wrong disease. See CLAUDE.md's XGBoost corroboration-signal section for
-the full audit.
-
-Several XGBoost-side labels carry real spelling quirks from the source
-dataset (a typo, a lowercase leading letter, a double space) — these are
-reproduced VERBATIM below because they are the actual values
-label_encoder.classes_ returns; "fixing" the spelling here would just
-make the lookup silently fail.
+The earlier bundle covered only 13 of 49 diseases and needed three
+ambiguous pairs (Type 2 Diabetes/"Diabetes", Allergic
+Rhinitis/"Allergy", Rheumatoid Arthritis/"Arthritis") deliberately
+excluded as unsafe guesses. That problem doesn't exist here: every class
+label IS a RAG disease name, verbatim, so there is no pairing left to get
+wrong.
 """
 
 from __future__ import annotations
 
-# RAG knowledge base `name` (rag.schema.KnowledgeBaseEntry.name, exactly as
-# it appears in rag/knowledge_base/*.json) -> XGBoost class label (exactly
-# as ml.model_loader.load_bundle().label_encoder.classes_ returns it).
-DISEASE_CROSSWALK: dict[str, str] = {
-    "Asthma": "Bronchial Asthma",
-    "Chickenpox": "Chicken pox",
-    "Community-Acquired Pneumonia": "Pneumonia",
-    "Gastroesophageal Reflux Disease": "GERD",
-    "Hepatitis A": "hepatitis A",
-    "Hypertension": "Hypertension",
-    "Impetigo": "Impetigo",
-    "Migraine": "Migraine",
-    "Peptic Ulcer Disease": "Peptic ulcer diseae",  # sic — typo in the source dataset
-    "Typhoid Fever": "Typhoid",
-    "Urinary Tract Infection": "Urinary tract infection",
-    "Benign Paroxysmal Positional Vertigo": "(vertigo) Paroymsal  Positional Vertigo",  # sic
-    "Acute Gastroenteritis": "Gastroenteritis",
-}
+# rag/knowledge_base/*.json `name` values this XGBoost bundle has a class
+# for — currently all 49 (100% coverage; see module docstring).
+XGBOOST_COVERED_DISEASES: frozenset[str] = frozenset(
+    {
+        "Acute Bronchitis",
+        "Acute Gastroenteritis",
+        "Acute Musculoskeletal Strain",
+        "Acute Otitis Media",
+        "Acute Sinusitis",
+        "Allergic Rhinitis",
+        "Asthma",
+        "Atopic Dermatitis",
+        "Bacterial Vaginosis",
+        "Benign Paroxysmal Positional Vertigo",
+        "Chickenpox",
+        "Community-Acquired Pneumonia",
+        "Conjunctivitis",
+        "Cutaneous Leishmaniasis",
+        "Dysmenorrhea",
+        "Gastroesophageal Reflux Disease",
+        "Gout",
+        "Hand, Foot, and Mouth Disease",
+        "Hepatitis A",
+        "Herpes Zoster",
+        "Hypertension",
+        "Impetigo",
+        "Infectious Mononucleosis",
+        "Influenza",
+        "Iron Deficiency Anaemia",
+        "Irritable Bowel Syndrome",
+        "Kidney Stones",
+        "Measles",
+        "Migraine",
+        "Mumps",
+        "Otitis Externa",
+        "Pediculosis Capitis",
+        "Peptic Ulcer Disease",
+        "Pinworm Infection",
+        "Polycystic Ovary Syndrome",
+        "Rheumatoid Arthritis",
+        "Roseola",
+        "Rubella",
+        "Scabies",
+        "Streptococcal Pharyngitis",
+        "Tendinitis",
+        "Tension-Type Headache",
+        "Tonsillitis",
+        "Type 2 Diabetes",
+        "Typhoid Fever",
+        "Urinary Tract Infection",
+        "Urticaria",
+        "Vaginal Candidiasis",
+        "Viral Pharyngitis",
+    }
+)
 
 
 def xgboost_label_for(rag_disease_name: str) -> str | None:
-    """The XGBoost class label for a RAG disease name, or None if this
-    disease has no crosswalk entry (the common case — 36 of 49 RAG
-    diseases have none, by design, not by omission)."""
-    return DISEASE_CROSSWALK.get(rag_disease_name)
+    """The XGBoost class label for a RAG disease name — identical to
+    `rag_disease_name` itself, since this bundle was trained on
+    rag/knowledge_base/'s own names — or None if this disease has no
+    class in the model."""
+    return rag_disease_name if rag_disease_name in XGBOOST_COVERED_DISEASES else None

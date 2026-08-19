@@ -1,0 +1,22 @@
+{
+  "model_name": "xgboost",
+  "model_version": "xgboost-healix-arabic-v1.0",
+  "algorithm": "XGBClassifier",
+  "dataset_version": "healix-kb-plus-webteb-canonical-only-v1",
+  "feature_schema_version": "healix-arabic-v1.0",
+  "n_features": 98,
+  "n_classes": 49,
+  "evaluation_metrics": {
+    "holdout_test": {
+      "accuracy": 0.8545454545454545,
+      "macro_f1": 0.7432968385876974,
+      "weighted_f1": 0.8620452646768435
+    }
+  },
+  "known_limitations": [
+    "Synthetic symptom-combination data (union of rag/knowledge_base/*.json and webteb.com, filtered to vocabulary/symptoms.py canonical terms only) -- NOT real patient data.",
+    "Classes with <3 examples (no held-out test evaluation): ['Cutaneous Leishmaniasis', 'Hypertension', 'Pediculosis Capitis', 'Roseola', 'Scabies']",
+    "Diseases excluded entirely (fewer than 2 canonical symptoms available): []",
+    "Every feature column IS producible by nodes/extract_symptoms.py at real runtime (canonical vocabulary only) -- unlike the previous English-Kaggle bundle where only 52/131 columns were ever mappable."
+  ]
+}

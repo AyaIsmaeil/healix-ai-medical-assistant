@@ -194,8 +194,8 @@ class HealixState(TypedDict):
     # not patient-facing: emergency_node's message never uses "reason",
     # on purpose (CLAUDE.md > Non-negotiable safety rule 1 — a matched
     # rule's reason_ar names a clinical concern, which reads as
-    # diagnosis-adjacent). Must reach the doctor report (not built yet)
-    # so a matched rule's rationale isn't lost between here and there.
+    # diagnosis-adjacent). Surfaced in reports["doctor"] via
+    # nodes/generate_reports.py so a matched rule's rationale isn't lost.
     # See nodes.check_red_flags.check_red_flags, the only place these are
     # built, and rules.red_flags.RedFlagMatch.reason_ar for the source.
     red_flags: list[RedFlag]
@@ -241,9 +241,8 @@ class HealixState(TypedDict):
     # more follow-up question would meaningfully narrow it. Recomputed fresh
     # each call, same reasoning as red_flags above (no reducer) — it is
     # today's judgment against the full accumulated state, not something to
-    # merge with a stale prior verdict. graph.py's conditional edge (not yet
-    # built) reads this to route between ask_followup and rag_retrieve; the
-    # node itself does not route (CLAUDE.md > Working style).
+    # merge with a stale prior verdict. graph.py's conditional edge reads
+    # this to route between ask_followup and rag_retrieve; the node itself
     is_sufficient: bool
     # The question to ask next, Syrian colloquial Arabic. Consumed by
     # ask_followup to actually send it to the patient; the deciding node

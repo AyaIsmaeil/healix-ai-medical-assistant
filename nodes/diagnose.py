@@ -1,8 +1,7 @@
 """diagnose: ranks state["candidate_diseases"] (from rag_retrieve) into a
-differential, or returns insufficient_information (CLAUDE.md > Graph
-flow: runs after rag_retrieve, before route_specialty — none of which
-exists as a graph edge yet; this node is not wired into graph.py in this
-change, per CLAUDE.md > Working style: one node at a time).
+differential, or returns insufficient_information (CLAUDE.md > Graph flow:
+runs after ml_corroborate, before route_specialty — wired in graph.py as
+ml_corroborate -> diagnose -> route_specialty -> generate_reports).
 
 Reads only state["candidate_diseases"] — not the raw symptom lists or
 patient message. rag_retrieve already did the symptom-matching; this

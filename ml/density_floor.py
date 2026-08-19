@@ -6,15 +6,11 @@ section for the full writeup).
 --- Why this exists ---
 
 The XGBoost model needs a feature vector reasonably close to its own
-training-time pattern to say anything reliable. Confirmed empirically
-during the audit: feeding the real model only Hypertension's two
-rag/knowledge_base/hypertension.json symptoms (headache + dizziness)
-still landed Hypertension as the model's own top pick, but a full,
-training-pattern-matching row is what the model actually learned from —
-an arbitrary probability-magnitude threshold calibrated against dense
-rows would misrepresent what the model does on the sparse input this
-integration realistically produces (CLAUDE.md, and the user's own
-decision: no probability-magnitude thresholds anywhere in this feature).
+training-time pattern to say anything reliable. An arbitrary
+probability-magnitude threshold calibrated against dense rows would
+misrepresent what the model does on the sparse input this integration
+realistically produces (CLAUDE.md, and the user's own decision: no
+probability-magnitude thresholds anywhere in this feature).
 
 This module answers a narrower, structural question instead: for THIS
 disease, does the built feature vector contain enough of the columns
@@ -23,129 +19,116 @@ nodes.ml_corroborate to even bother asking the model?
 
 --- Provenance — how EXPECTED_FEATURES_BY_DISEASE was derived ---
 
-For each of ml.disease_crosswalk.DISEASE_CROSSWALK's 13 pairs, computed
-directly against the real training + holdout data for this exact model
-version (`app/data/processed/disease_symptom_v1/disease-symptom-v1-7414d5132a47/`
-in the source project — train.parquet + test.parquet, 304 rows total,
-the same dataset_version metadata.json's own `dataset_version` field
-names):
+Exported directly by ml/training/disease_symptom_checklist_training.ipynb
+at training time, from the actual generated feature matrix for
+ml/models/xgboost-healix-arabic-v1.0/ (density_floor_export.json in that
+bundle directory):
 
-    EXPECTED_FEATURES_BY_DISEASE[rag_name] = (
-        {every feature_schema.json column that was nonzero in AT LEAST
-         ONE real training/holdout row for that XGBoost class}
-        INTERSECTED WITH
-        ml.feature_mapper.mapped_features()
-    )
+    EXPECTED_FEATURES_BY_DISEASE[rag_name] = every feature_schema.json
+        column that was nonzero in AT LEAST ONE generated training/test
+        row for that disease's class.
 
-A stricter "present in EVERY row for this disease" (set intersection
-across rows, rather than union) was tried first and rejected: with only
-5-10 examples per class, it came back EMPTY for 8 of the 13 diseases —
-this dataset's rows are evidently distinct symptom-subset "cases" per
-disease, not variations on one fixed core pattern, so no single feature
-is common to all of them. Union-then-intersect-with-mappable is the
-looser, still-defensible standard: "has this disease's real data ever
-actually used this column, and can Healix_chatbot's Arabic vocabulary
-even represent it" — not merely mappable in the abstract, but mappable
-AND actually part of this specific disease's real signal.
+Every column here is, by construction, one of vocabulary/symptoms.py's
+own canonical (normalized) terms — the notebook's filter_to_canonical()
+step guarantees this, unlike the previous bundle where only 52/131
+columns were ever Arabic-mappable. There is no "structurally can never
+clear the floor" disease in this bundle: every one of the 49 diseases has
+between 2 and 8 expected features (all >= MIN_REQUIRED_MATCHED).
 
-This is a hand-reviewed, frozen constant, not re-derived from the raw
-parquet files at runtime — same "explicit, reviewed, no live
-re-derivation" discipline as ml.disease_crosswalk.DISEASE_CROSSWALK. The
-derivation script is not part of this package; re-run it against the
-same dataset_version if the vendored model bundle or feature_mapper's
-coverage ever changes, and update the sets below by hand, reviewed, same
-as any other change to a reviewed constant.
+This is copied from that export as a frozen constant, not re-read from
+the JSON file at runtime — same "explicit, reviewed, no live
+re-derivation on the hot path" discipline as ml.disease_crosswalk. Re-run
+the notebook and refresh this dict by hand, reviewed, if the vendored
+bundle is ever retrained.
 
 --- The gate itself ---
 
 MIN_REQUIRED_MATCHED = 2 — the same absolute-count floor and the same
 reasoning as nodes.rag_retrieve.MIN_MATCHED_SYMPTOMS: a single matched
-feature, even a disease-relevant one, was already shown elsewhere in
-this project (rag_retrieve's own hypertension counterexample) to be too
-weak a basis on its own. Applying the identical, already-reviewed
-threshold here — rather than inventing a new number — is deliberate.
-
-One disease structurally can never clear this floor with the CURRENT
-feature_mapper: Urinary Tract Infection's real training data only ever
-uses ONE mappable feature (burning_micturition — bladder_discomfort,
-continuous_feel_of_urine, and foul_smell_of_urine all have no Arabic
-vocabulary equivalent yet). This is flagged here rather than silently
-discovered later: nodes.ml_corroborate will never emit a signal for a
-Urinary Tract Infection candidate until vocabulary/symptoms.py grows a
-second UTI-relevant term feature_mapper.py can pick up. That is a
-correct, expected "no signal" outcome (CLAUDE.md > Known limitations),
-not a bug to work around here.
+feature, even a disease-relevant one, was already shown elsewhere in this
+project (rag_retrieve's own hypertension counterexample) to be too weak a
+basis on its own. Applying the identical, already-reviewed threshold here
+— rather than inventing a new number — is deliberate.
 """
 
 from __future__ import annotations
 
 MIN_REQUIRED_MATCHED = 2
 
-# RAG disease name (ml.disease_crosswalk.DISEASE_CROSSWALK's keys) -> the
-# set of XGBoost feature_schema.json columns this disease's real training
-# data actually used AND ml.feature_mapper can represent. See module
-# docstring for exact derivation.
+# RAG disease name (ml.disease_crosswalk.XGBOOST_COVERED_DISEASES's
+# members) -> the set of normalized, feature_schema.json columns this
+# disease's real (synthetic, canonical-vocabulary) training data actually
+# used. See module docstring for exact derivation.
 EXPECTED_FEATURES_BY_DISEASE: dict[str, frozenset[str]] = {
-    "Asthma": frozenset({"breathlessness", "cough", "fatigue", "high_fever"}),
-    "Chickenpox": frozenset(
-        {
-            "fatigue",
-            "headache",
-            "high_fever",
-            "itching",
-            "loss_of_appetite",
-            "mild_fever",
-            "skin_rash",
-            "swelled_lymph_nodes",
-        }
+    "Acute Bronchitis": frozenset({"بلغم", "تعب", "حمى خفيفه", "سعال", "ضيق بالصدر"}),
+    "Acute Gastroenteritis": frozenset({"اسهال", "الم بطن", "تقيؤ", "حمى", "غثيان"}),
+    "Acute Musculoskeletal Strain": frozenset({"الم موضعي عضلي", "تيبس", "صعوبه حركه"}),
+    "Acute Otitis Media": frozenset({"الم اذن", "حمى", "فقدان سمع"}),
+    "Acute Sinusitis": frozenset(
+        {"احتقان انف", "افرازات انفيه", "الم بالوجه", "صداع", "غثيان", "فقدان حاسه الشم"}
     ),
+    "Allergic Rhinitis": frozenset(
+        {"احتقان انف", "حكه بالعين", "دموع زائده", "سيلان انف", "عطس متكرر"}
+    ),
+    "Asthma": frozenset({"ازيز صدر", "سعال", "ضيق بالصدر", "ضيق تنفس"}),
+    "Atopic Dermatitis": frozenset({"احمرار", "جفاف الجلد", "حكه", "طفح جلدي"}),
+    "Bacterial Vaginosis": frozenset({"افرازات مهبليه", "حكه مهبليه", "رائحه مهبليه كريهه"}),
+    "Benign Paroxysmal Positional Vertigo": frozenset({"دوار", "دوخه", "غثيان"}),
+    "Chickenpox": frozenset({"تعب", "حكه", "حمى", "طفح جلدي"}),
     "Community-Acquired Pneumonia": frozenset(
-        {"breathlessness", "chest_pain", "cough", "fatigue", "high_fever", "phlegm", "sweating"}
+        {"الم في الصدر", "تعب", "حمى", "سعال", "ضيق تنفس"}
     ),
+    "Conjunctivitis": frozenset(
+        {"احمرار", "احمرار العين", "افرازات عينيه", "حكه", "حكه بالعين", "دموع زائده"}
+    ),
+    "Cutaneous Leishmaniasis": frozenset({"تقرح جلدي", "طفح جلدي"}),
+    "Dysmenorrhea": frozenset({"الم اسفل البطن", "الم اسفل الظهر", "غثيان"}),
     "Gastroesophageal Reflux Disease": frozenset(
-        {"acidity", "chest_pain", "cough", "ulcers_on_tongue", "vomiting"}
+        {"ارتجاع حمضي", "حرقه في الصدر", "صعوبه بلع", "طعم حامض او مر بالفم"}
     ),
-    "Hepatitis A": frozenset(
-        {
-            "abdominal_pain",
-            "dark_urine",
-            "diarrhoea",
-            "joint_pain",
-            "loss_of_appetite",
-            "mild_fever",
-            "muscle_pain",
-            "nausea",
-            "vomiting",
-        }
+    "Gout": frozenset({"احمرار", "الم مفاصل شديد ومفاجئ", "تورم مفاصل"}),
+    "Hand, Foot, and Mouth Disease": frozenset({"التهاب حلق", "تقرحات الفم", "حمى", "طفح جلدي"}),
+    "Hepatitis A": frozenset({"الم اعلى البطن", "بول داكن", "تعب", "غثيان", "يرقان"}),
+    "Herpes Zoster": frozenset({"حرقان او وخز بالجلد", "حساسيه للضوء", "حمى", "صداع", "طفح جلدي"}),
+    "Hypertension": frozenset({"دوخه", "صداع"}),
+    "Impetigo": frozenset({"احمرار", "حكه", "حمى", "طفح جلدي", "قشور عسليه اللون على الجلد"}),
+    "Infectious Mononucleosis": frozenset({"الم حلق شديد", "تعب شديد", "تورم غدد الرقبه", "حمى"}),
+    "Influenza": frozenset(
+        {"التهاب حلق", "الم عضلي", "تعب", "حمى", "سعال", "سيلان انف", "صداع", "فقدان الوعي"}
     ),
-    "Hypertension": frozenset({"chest_pain", "dizziness", "headache", "loss_of_balance"}),
-    "Impetigo": frozenset({"high_fever", "skin_rash", "yellow_crust_ooze"}),
-    "Migraine": frozenset(
-        {"acidity", "blurred_and_distorted_vision", "headache", "irritability", "stiff_neck"}
+    "Iron Deficiency Anaemia": frozenset(
+        {"الم في الصدر", "تعب", "خفقان القلب", "دوار", "دوخه", "شحوب", "ضيق تنفس"}
     ),
-    "Peptic Ulcer Disease": frozenset({"abdominal_pain", "loss_of_appetite", "vomiting"}),
-    "Typhoid Fever": frozenset(
-        {
-            "abdominal_pain",
-            "constipation",
-            "diarrhoea",
-            "fatigue",
-            "headache",
-            "high_fever",
-            "nausea",
-            "vomiting",
-        }
+    "Irritable Bowel Syndrome": frozenset({"اسهال", "الم بطن معمم", "امساك", "انتفاخ"}),
+    "Kidney Stones": frozenset({"الم شديد بالخاصره", "تقيؤ", "دم في البول", "غثيان"}),
+    "Measles": frozenset({"احمرار العين", "بقع بيضاء بالفم", "حمى", "سعال", "طفح جلدي"}),
+    "Migraine": frozenset({"حساسيه للصوت", "حساسيه للضوء", "صداع نابض من جهه واحده", "غثيان"}),
+    "Mumps": frozenset({"الم عضلي", "تورم الغدد اللعابيه", "حمى", "صداع"}),
+    "Otitis Externa": frozenset({"احمرار", "افرازات من الاذن", "الم اذن", "حكه بالاذن"}),
+    "Pediculosis Capitis": frozenset({"احساس بحركه بفروه الراس", "حكه فروه الراس"}),
+    "Peptic Ulcer Disease": frozenset({"الم اعلى البطن", "انتفاخ", "غثيان", "فقدان شهيه"}),
+    "Pinworm Infection": frozenset({"اضطراب نوم", "تهيج", "حكه شرجيه"}),
+    "Polycystic Ovary Syndrome": frozenset(
+        {"اضطراب الدوره الشهريه", "حب الشباب", "زياده وزن", "نمو شعر زائد"}
     ),
-    # Structurally can never clear MIN_REQUIRED_MATCHED=2 today — see
-    # module docstring. Kept as a real (not padded) 1-element set rather
-    # than removing the disease from this dict entirely, so a future
-    # vocabulary addition that adds a second UTI-mappable feature is a
-    # one-line change here, not a rediscovery of this whole analysis.
-    "Urinary Tract Infection": frozenset({"burning_micturition"}),
-    "Benign Paroxysmal Positional Vertigo": frozenset(
-        {"headache", "loss_of_balance", "nausea", "spinning_movements", "vomiting"}
+    "Rheumatoid Arthritis": frozenset({"الم مفاصل", "تعب", "تورم مفاصل", "تيبس صباحي"}),
+    "Roseola": frozenset({"حمى مرتفعه مفاجئه", "طفح جلدي"}),
+    "Rubella": frozenset({"الم مفاصل", "تورم غدد خلف الاذن", "حمى خفيفه", "طفح جلدي"}),
+    "Scabies": frozenset({"حكه شديده ليليه", "طفح جلدي"}),
+    "Streptococcal Pharyngitis": frozenset(
+        {"الم حلق شديد ومفاجئ", "تورم غدد الرقبه", "حمى", "صعوبه بلع"}
     ),
-    "Acute Gastroenteritis": frozenset({"diarrhoea", "vomiting"}),
+    "Tendinitis": frozenset({"الم موضعي عند الحركه", "تورم موضعي", "تيبس"}),
+    "Tension-Type Headache": frozenset({"تعب", "تيبس", "صداع ضاغط من الجهتين"}),
+    "Tonsillitis": frozenset({"الم حلق شديد", "تورم اللوزتين", "حمى", "صعوبه بلع"}),
+    "Type 2 Diabetes": frozenset(
+        {"تبول متكرر", "تشوش رؤيه", "تعب", "عطش شديد", "نقص وزن غير مبرر"}
+    ),
+    "Typhoid Fever": frozenset({"الم بطن", "تعب", "حمى", "صداع"}),
+    "Urinary Tract Infection": frozenset({"الم اسفل البطن", "تبول متكرر", "حرقه عند التبول", "حمى"}),
+    "Urticaria": frozenset({"تورم موضعي", "حكه", "طفح جلدي"}),
+    "Vaginal Candidiasis": frozenset({"افرازات مهبليه", "حرقه عند التبول", "حكه مهبليه"}),
+    "Viral Pharyngitis": frozenset({"التهاب حلق", "حمى خفيفه", "سعال", "سيلان انف"}),
 }
 
 
