@@ -30,6 +30,16 @@ def _reset_whisper_model():
     set_whisper_model(None)
 
 
+@pytest.fixture(autouse=True)
+def _bypass_real_ffmpeg(monkeypatch):
+    # Every transcribe() test in this file should run without a real
+    # ffmpeg subprocess or real audio bytes — same "indirected" pattern as
+    # _async_sleep above. Passes the original (unnormalized) temp path
+    # straight through, which is fine since the fake Whisper model below
+    # never actually reads the file's contents.
+    monkeypatch.setattr(speech_client, "_normalize_to_wav", lambda path: path)
+
+
 def test_transcribe_empty_audio_raises():
     with pytest.raises(SpeechUnavailable, match="empty"):
         transcribe(b"")
@@ -66,6 +76,43 @@ def test_transcribe_whisper_failure_raises():
 
     with pytest.raises(SpeechUnavailable, match="transcription failed"):
         transcribe(b"audio")
+
+
+def test_transcribe_normalizes_audio_to_wav_before_whisper_sees_it(monkeypatch):
+    # Overrides the blanket _bypass_real_ffmpeg fixture above to assert the
+    # real wiring: transcribe() must hand Whisper the NORMALIZED path, not
+    # the raw uploaded temp file — see _ffmpeg_normalize_to_wav's docstring
+    # for why (Android/Chrome webm duration quirk).
+    calls = []
+
+    def _fake_normalize(path):
+        calls.append(path)
+        return path + ".wav"
+
+    monkeypatch.setattr(speech_client, "_normalize_to_wav", _fake_normalize)
+
+    fake_model = MagicMock()
+    fake_model.transcribe.return_value = ([_FakeSegment("صداع")], MagicMock())
+    set_whisper_model(fake_model)
+
+    transcribe(b"audio")
+
+    assert len(calls) == 1
+    args, _kwargs = fake_model.transcribe.call_args
+    assert args[0] == calls[0] + ".wav"
+
+
+def test_transcribe_normalization_failure_raises_speech_unavailable(monkeypatch):
+    def _fail(path):
+        raise SpeechUnavailable("audio normalization failed: boom")
+
+    monkeypatch.setattr(speech_client, "_normalize_to_wav", _fail)
+    fake_model = MagicMock()
+    set_whisper_model(fake_model)
+
+    with pytest.raises(SpeechUnavailable, match="normalization failed"):
+        transcribe(b"audio")
+    fake_model.transcribe.assert_not_called()
 
 
 @pytest.mark.asyncio

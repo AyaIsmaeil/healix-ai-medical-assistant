@@ -35,6 +35,7 @@ from nodes.rag_retrieve import rag_retrieve
 from nodes.reiterate_terminal_outcome import reiterate_terminal_outcome
 from nodes.reset_stage import reset_stage
 from nodes.route_specialty import route_specialty
+from nodes.verify_red_flag import verify_red_flag
 from state import HealixState
 
 _logger = logging.getLogger("healix.graph")
@@ -97,10 +98,11 @@ def _route_after_crisis_check(state: HealixState) -> str:
 
 
 def _route_after_check_red_flags(state: HealixState) -> str:
-    """check_red_flags -> emergency_node if it found anything this turn,
+    """check_red_flags -> emergency_node on a hard rule match this turn,
     else -> reiterate_terminal_outcome if this thread already reached a
     terminal safety outcome on an earlier turn and nothing new escalated
-    this turn, else -> assess_sufficiency.
+    this turn, else -> verify_red_flag if a cited candidate is still
+    unresolved, else -> assess_sufficiency.
 
     Safety rule 4 (CLAUDE.md): the red-flag path bypasses RAG and
     diagnosis entirely, straight to its terminal node — same reasoning as
@@ -112,12 +114,39 @@ def _route_after_check_red_flags(state: HealixState) -> str:
     simply what gets recorded, and this ordering is what lets a later,
     real escalation actually reach it rather than being silently
     swallowed by the "already terminal" branch below.
+
+    red_flag_candidates is checked AFTER thread_outcome, not before: once
+    a thread already reached crisis/emergency and nothing NEW escalated
+    this turn, an unresolved candidate is still "normal symptom triage"
+    in the sense safety rule 13 means to bypass — reiterate_terminal_outcome's
+    fixed reminder takes priority over asking a clarification question on
+    an already-terminal thread. See nodes/check_red_flags.py's module
+    docstring for the full candidate/confirmed design (this function only
+    reads state["red_flag_candidates"], the LIST check_red_flags already
+    filtered to not-yet-rejected candidates — no rejection logic lives
+    here).
     """
     if state.get("red_flags"):
         return "emergency_node"
     if state.get("thread_outcome") is not None:
         return "reiterate_terminal_outcome"
+    if state.get("red_flag_candidates"):
+        return "verify_red_flag"
     return "assess_sufficiency"
+
+
+def _route_after_verify_red_flag(state: HealixState) -> str:
+    """verify_red_flag -> ask_followup if it set a clarification question
+    this turn, else -> assess_sufficiency (the shared follow-up budget was
+    already spent, or no candidate was actually there to ask about).
+
+    Reuses ask_followup (nodes/ask_followup.py), not a new terminal node —
+    the same reuse rag_retrieve's own sex-clarification question already
+    makes of ask_followup: that node's contract (send
+    state["next_question"], end the turn, await the next invoke() on this
+    thread_id) has no coupling to which upstream node set the question.
+    """
+    return "ask_followup" if state.get("next_question") else "assess_sufficiency"
 
 
 def _route_after_assess_sufficiency(state: HealixState) -> str:
@@ -170,9 +199,26 @@ def build_graph(checkpointer: BaseCheckpointSaver) -> CompiledStateGraph:
         START -> reset_stage -> crisis_check -> crisis_node -> END
                                              \\-> extract_symptoms -> check_red_flags -> emergency_node -> END
                                                                                       \\-> reiterate_terminal_outcome -> END
+                                                                                      \\-> verify_red_flag -> ask_followup -> END
+                                                                                                          \\-> assess_sufficiency -> ask_followup -> END
                                                                                       \\-> assess_sufficiency -> ask_followup -> END
                                                                                                               \\-> rag_retrieve -> ask_followup -> END
                                                                                                                                 \\-> ml_corroborate -> diagnose -> route_specialty -> generate_reports -> END
+
+    verify_red_flag (nodes/verify_red_flag.py) is the newest addition —
+    _route_after_check_red_flags sends a turn here instead of straight to
+    emergency_node when check_red_flags found only an unresolved CANDIDATE
+    (a cited rule's core symptom present, its discriminators not yet
+    confirmed or denied), never on a hard rule match. It asks one targeted
+    question and, like rag_retrieve's own sex-clarification branch, routes
+    into the SAME ask_followup node the assess_sufficiency loop already
+    uses — no second follow-up mechanism. Resolution (confirmed ->
+    emergency_node via a real rule match, or rejected -> falls out of
+    red_flag_candidates) happens naturally on a LATER turn when
+    check_red_flags re-runs against the newly accumulated state; see
+    nodes/check_red_flags.py's and nodes/verify_red_flag.py's own module
+    docstrings for the full design this replaces (`if rule or llm:
+    emergency`).
 
     reset_stage runs first, unconditionally, on every turn — it clears
     state["stage"] before any node this turn could set one (CLAUDE.md >
@@ -238,6 +284,7 @@ def build_graph(checkpointer: BaseCheckpointSaver) -> CompiledStateGraph:
     builder.add_node("extract_symptoms", extract_symptoms)
     builder.add_node("check_red_flags", check_red_flags)
     builder.add_node("emergency_node", emergency_node)
+    builder.add_node("verify_red_flag", verify_red_flag)
     builder.add_node("assess_sufficiency", assess_sufficiency)
     builder.add_node("ask_followup", ask_followup)
     builder.add_node("rag_retrieve", rag_retrieve)
@@ -262,11 +309,17 @@ def build_graph(checkpointer: BaseCheckpointSaver) -> CompiledStateGraph:
         {
             "emergency_node": "emergency_node",
             "reiterate_terminal_outcome": "reiterate_terminal_outcome",
+            "verify_red_flag": "verify_red_flag",
             "assess_sufficiency": "assess_sufficiency",
         },
     )
     builder.add_edge("emergency_node", END)
     builder.add_edge("reiterate_terminal_outcome", END)
+    builder.add_conditional_edges(
+        "verify_red_flag",
+        _route_after_verify_red_flag,
+        {"ask_followup": "ask_followup", "assess_sufficiency": "assess_sufficiency"},
+    )
     builder.add_conditional_edges(
         "assess_sufficiency",
         _route_after_assess_sufficiency,

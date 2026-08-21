@@ -90,6 +90,7 @@ def test_chat_with_valid_request_and_mocked_graph_returns_the_right_shape():
     assert response.status_code == 200
     body = response.json()
     assert body["thread_id"] == "t1"
+    assert body["conversation_id"] == "t1"
     assert body["reply"] == "هاد تقييم أولي بناءً على الأعراض."
     assert body["stage"] == "diagnosis"
     assert body["is_crisis"] is False
@@ -115,6 +116,48 @@ def test_chat_passes_patient_sex_and_message_through_to_the_graph():
     assert sent["patient_sex"] == "female"
     assert sent["messages"] == [{"role": "user", "content": "عندي صداع"}]
     assert sent["thread_id"] == "t1"
+    assert fake_graph.invoke_calls[0]["config"] == {
+        "configurable": {"thread_id": "t1"}
+    }
+
+
+def test_chat_accepts_conversation_id_instead_of_thread_id_and_uses_it_as_the_checkpoint_key():
+    fake_graph = _FakeCompiledGraph(return_value=_SUFFICIENT_TURN_RESULT)
+    _use_fake_graph(fake_graph)
+
+    with TestClient(api_main.app) as client:
+        response = client.post(
+            "/chat",
+            json={"conversation_id": "conv-uuid-1", "message": "عندي صداع"},
+            headers=AUTH_HEADERS,
+        )
+
+    assert response.status_code == 200
+    assert response.json()["thread_id"] == "conv-uuid-1"
+    assert response.json()["conversation_id"] == "conv-uuid-1"
+    assert fake_graph.invoke_calls[0]["config"] == {
+        "configurable": {"thread_id": "conv-uuid-1"}
+    }
+    assert fake_graph.invoke_calls[0]["input"]["thread_id"] == "conv-uuid-1"
+
+
+def test_chat_rejects_mismatched_thread_id_and_conversation_id_before_graph_work():
+    fake_graph = _FakeCompiledGraph(return_value=_SUFFICIENT_TURN_RESULT)
+    _use_fake_graph(fake_graph)
+
+    with TestClient(api_main.app) as client:
+        response = client.post(
+            "/chat",
+            json={
+                "thread_id": "thread-a",
+                "conversation_id": "thread-b",
+                "message": "عندي صداع",
+            },
+            headers=AUTH_HEADERS,
+        )
+
+    assert response.status_code == 422
+    assert fake_graph.invoke_calls == []
 
 
 def test_chat_medical_record_summary_absent_is_forwarded_as_empty_string_not_none():
@@ -236,7 +279,7 @@ def _extraction_response(symptoms: list[str]) -> _ProviderResponse:
 
 
 def _no_red_flag_response() -> _ProviderResponse:
-    return _ProviderResponse(text=json.dumps({"has_red_flag": False, "reasoning": None}, ensure_ascii=False))
+    return _ProviderResponse(text=json.dumps({"potential_red_flag": False, "reasoning": None}, ensure_ascii=False))
 
 
 def _sufficient_response() -> _ProviderResponse:
@@ -318,10 +361,11 @@ def test_emergency_stage_response_does_not_carry_a_stale_diagnosis_from_an_earli
                 _sufficient_response(),
                 _diagnosis_response("differential", differential=["Migraine"], reasoning="تطابق كامل"),
                 # Turn 2: a deterministic emergency (acs_chest_pain fires
-                # from the RULE layer alone — the LLM red-flag layer below
-                # deliberately says has_red_flag=False, proving stage
-                # becomes "emergency" independent of the LLM's own verdict,
-                # same OR-combination safety rule 3 already guarantees).
+                # from the RULE layer alone — the LLM's potential_red_flag
+                # screen below deliberately says False, proving stage
+                # becomes "emergency" from the cited rule match alone,
+                # independent of the LLM's own verdict either way —
+                # nodes/check_red_flags.py's module docstring).
                 _no_crisis_response(),
                 _extraction_response(["الم في الصدر", "ضيق تنفس", "تعرق غزير"]),
                 _no_red_flag_response(),
@@ -357,3 +401,47 @@ def test_emergency_stage_response_does_not_carry_a_stale_diagnosis_from_an_earli
     assert second_body["diagnosis"] is None
     assert second_body["specialty"] is None
     assert second_body["reports"] is None
+
+
+def test_two_http_conversations_do_not_share_checkpointed_state():
+    set_provider(
+        _FakeLLMProvider(
+            [
+                _no_crisis_response(),
+                _extraction_response(["صداع"]),
+                _no_red_flag_response(),
+                _sufficient_response(),
+                _no_crisis_response(),
+                # NOT "الم بطن" (abdominal pain) — that's
+                # ectopic_pregnancy's own all_of term (rules/red_flags.py),
+                # which would route this turn to nodes/verify_red_flag.py's
+                # clarification branch instead of straight through to
+                # diagnosis, unrelated to what this test checks
+                # (checkpoint isolation between two conversations).
+                _extraction_response(["سعال"]),
+                _no_red_flag_response(),
+                _sufficient_response(),
+            ]
+        )
+    )
+
+    with TestClient(api_main.app) as client:
+        first = client.post(
+            "/chat",
+            json={"thread_id": "http-conv-a", "message": "عندي صداع"},
+            headers=AUTH_HEADERS,
+        )
+        second = client.post(
+            "/chat",
+            json={"conversation_id": "http-conv-b", "message": "عندي سعال"},
+            headers=AUTH_HEADERS,
+        )
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["thread_id"] == "http-conv-a"
+    assert first.json()["conversation_id"] == "http-conv-a"
+    assert second.json()["thread_id"] == "http-conv-b"
+    assert second.json()["conversation_id"] == "http-conv-b"
+    assert second.json()["stage"] == "diagnosis"
+    assert first.json()["stage"] == "diagnosis"

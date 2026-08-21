@@ -1,17 +1,10 @@
-"""Pydantic model for check_red_flags' LLM-side output.
+"""Pydantic models for the LLM half of red-flag screening and verification.
 
-CLAUDE.md > Non-negotiable safety rule 3: red-flag detection is
-rule-based first, LLM second, combined with OR. This schema is the LLM
-half — rules/red_flags.py's deterministic half never goes through an LLM
-schema at all, and is never weakened by what this returns.
-
-Deliberately minimal, mirroring schemas.crisis.CrisisCheckResult: a
-boolean the node ORs with the rule engine's result, plus free-text
-reasoning for the audit trail only. No category enum: unlike the rule
-engine's fixed, code-defined category set, this layer exists precisely
-to catch what that fixed set doesn't model (including a symptom-like
-phrase that never matched a canonical name at all) — constraining it to
-the same categories would defeat the point of having it.
+The deterministic layer (rules/red_flags.py) never goes through an LLM
+schema. The LLM may surface a *potential* concern the rule engine cannot
+see (unmatched mentions). It is not authorized to confirm an emergency
+or to invent verification criteria — disposition is decided in
+nodes/check_red_flags.py from cited rules.
 """
 
 from __future__ import annotations
@@ -20,15 +13,28 @@ from pydantic import BaseModel, Field
 
 
 class RedFlagAssessment(BaseModel):
-    has_red_flag: bool = Field(
+    potential_red_flag: bool = Field(
         description=(
-            "Whether anything in the symptoms — including the free-text "
-            "ones that didn't match a canonical name — suggests a "
-            "potential medical emergency needing immediate evaluation. "
-            "This is a screen, not a diagnosis."
+            "Whether anything in the listed symptoms or unmatched mentions "
+            "is a *candidate* red-flag concern that the deterministic rules "
+            "might have missed. This is a screen, not an emergency decision "
+            "and not a diagnosis. Isolated common symptoms (e.g. chest pain "
+            "or fever alone) may be potential concerns; they are not "
+            "confirmed emergencies."
         )
     )
     reasoning: str | None = Field(
         default=None,
         description="One short clause explaining the concern, for the audit trail only.",
+    )
+
+
+class VerificationQuestion(BaseModel):
+    question: str = Field(
+        description=(
+            "One Syrian-colloquial Arabic question that asks ONLY about the "
+            "listed missing information items. Do not add other medical "
+            "questions, diagnoses, or advice."
+        ),
+        min_length=1,
     )

@@ -36,6 +36,12 @@ healix_checkpoints.sqlite-wal
 *.sqlite-shm
 *.sqlite-wal
 
+# Health Education module's raw/processed data — never committed. *.jsonl
+# above already covers ahd_cleaned.jsonl/ahd_quarantined_medication.jsonl;
+# these are explicit for clarity (docs/AHD_DATA_PROVENANCE.md).
+# data/ahd_raw/
+# rag/health_education/data/
+
 # Editors / OS
 .DS_Store
 Thumbs.db
@@ -43,3 +49,5 @@ Thumbs.db
 # Local Claude Code instructions — not tracked
 CLAUDE.md
 healix_checkpoints.sqlite*
+
+docs/*

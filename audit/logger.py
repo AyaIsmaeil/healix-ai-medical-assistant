@@ -211,14 +211,34 @@ def log_red_flag_detection(
     llm_matched: bool,
     llm_reasoning: str | None,
     combined: bool,
+    candidate_rule_ids: list[str] | None = None,
+    safety_decision: str | None = None,
 ) -> None:
-    """Record both red-flag-detection layers' verdicts side by side.
+    """Record every red-flag-detection layer's verdict side by side, plus
+    the final explicit disposition (nodes/check_red_flags.py's module
+    docstring: candidate/confirmed architecture, not an implicit OR).
 
-    Same rationale as log_crisis_detection (CLAUDE.md > Non-negotiable
-    safety rule 3, same OR-combination principle applied to red flags
-    instead of crisis): logging the two verdicts separately, not just
-    `combined`, is what lets later analysis measure how often each layer
-    catches something the other missed.
+    rule_matched/rule_ids/combined: the deterministic hard-match layer
+    (rules.red_flags.check_red_flags) — unchanged meaning from before this
+    module's disposition rewrite. llm_matched/llm_reasoning: the LLM's
+    potential_red_flag SCREEN — logged for audit/analysis (measuring how
+    often it flags something the deterministic layers miss entirely), but
+    since nodes/check_red_flags.py's rewrite it no longer independently
+    drives `combined` or the disposition below — see that module's own
+    docstring for why (schemas/red_flags.py: "not authorized to confirm
+    an emergency").
+
+    candidate_rule_ids/safety_decision are new (previously absent):
+    candidate_rule_ids is the deterministic Layer 1b's own output
+    (rules.red_flags.find_incomplete_combination_candidates, not-yet-
+    rejected only); safety_decision is the explicit
+    HARD_EMERGENCY/NEEDS_CLARIFICATION/NO_RED_FLAG disposition
+    (state.SafetyDecision) graph.py's routing actually reads. Optional
+    with a None default so this function's signature does not break any
+    other caller that predates this field — there is none today (checked:
+    nodes/check_red_flags.py is this function's only caller), but the
+    same "additive, not breaking" discipline applies here as everywhere
+    else in this project.
 
     rule_ids, not rule_categories: rules/red_flags.py has multiple rules
     sharing a category (e.g. two "neuro" rules), so the rule_id is the
@@ -226,7 +246,8 @@ def log_red_flag_detection(
     """
     _logger.info(
         "red_flag_detection ts=%s thread_id=%s rule_matched=%s rule_ids=%r "
-        "llm_matched=%s llm_reasoning=%r combined=%s",
+        "llm_matched=%s llm_reasoning=%r combined=%s candidate_rule_ids=%r "
+        "safety_decision=%s",
         datetime.now(timezone.utc).isoformat(),
         thread_id,
         rule_matched,
@@ -234,6 +255,8 @@ def log_red_flag_detection(
         llm_matched,
         llm_reasoning,
         combined,
+        candidate_rule_ids or [],
+        safety_decision,
     )
 
 

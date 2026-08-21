@@ -101,8 +101,10 @@ from api.contracts import (
     SpeechSynthesizeRequest,
     SpeechTranscribeResponse,
 )
+from api.health_qa_contracts import HealthQuestionRequest, HealthQuestionResponse
 from graph import build_checkpointer, build_graph
 from llm_client import LLMError
+from rag.health_education.service import answer_health_question
 from speech_client import SpeechError, synthesize, transcribe
 
 load_dotenv()
@@ -214,13 +216,19 @@ def chat(request: ChatRequest, graph: CompiledStateGraph = Depends(get_graph)) -
     state.py), and means this endpoint doesn't need to track per-thread
     turn number itself; the checkpointer (keyed by thread_id, CLAUDE.md >
     State) is what actually remembers everything before this turn.
+
+    ChatRequest normalizes conversation_id and thread_id to the same
+    string (one conversation = one LangGraph thread). This service does
+    not mint that id and does not treat reset_stage as a new conversation.
     """
-    config = {"configurable": {"thread_id": request.thread_id}}
+    thread_id = request.thread_id
+    assert thread_id is not None  # ChatRequest validator always fills this
+    config = {"configurable": {"thread_id": thread_id}}
 
     try:
         result = graph.invoke(
             {
-                "thread_id": request.thread_id,
+                "thread_id": thread_id,
                 "messages": [{"role": "user", "content": request.message}],
                 # Every node reads this via state.get("medical_record_summary",
                 # "") — that default only kicks in when the KEY is absent,
@@ -241,10 +249,10 @@ def chat(request: ChatRequest, graph: CompiledStateGraph = Depends(get_graph)) -
             config=config,
         )
     except LLMError:
-        _logger.exception("graph.invoke failed (LLMError) for thread_id=%s", request.thread_id)
+        _logger.exception("graph.invoke failed (LLMError) for thread_id=%s", thread_id)
         raise HTTPException(status_code=502, detail=_UPSTREAM_ERROR_DETAIL) from None
     except Exception:
-        _logger.exception("graph.invoke failed unexpectedly for thread_id=%s", request.thread_id)
+        _logger.exception("graph.invoke failed unexpectedly for thread_id=%s", thread_id)
         raise HTTPException(status_code=500, detail=_INTERNAL_ERROR_DETAIL) from None
 
     stage = result["stage"]
@@ -266,7 +274,8 @@ def chat(request: ChatRequest, graph: CompiledStateGraph = Depends(get_graph)) -
     is_diagnosis_stage = stage == "diagnosis"
 
     return ChatResponse(
-        thread_id=request.thread_id,
+        thread_id=thread_id,
+        conversation_id=thread_id,
         reply=_latest_assistant_reply(result.get("messages", [])),
         stage=stage,
         is_crisis=stage == "crisis",
@@ -286,6 +295,32 @@ def chat(request: ChatRequest, graph: CompiledStateGraph = Depends(get_graph)) -
         specialty=result.get("specialty_laravel") if is_diagnosis_stage else None,
         reports=result.get("reports") if is_diagnosis_stage else None,
     )
+
+
+@app.post(
+    "/health-questions",
+    response_model=HealthQuestionResponse,
+    dependencies=[Depends(require_internal_token)],
+)
+def health_questions(request: HealthQuestionRequest) -> HealthQuestionResponse:
+    """General health-education Q&A — a separate feature from POST /chat
+    (CLAUDE.md-equivalent: docs/AHD_DATA_PROVENANCE.md). Shares no graph
+    state with /chat; a failure here cannot affect it. See
+    rag/health_education/service.py for the safety-gate + retrieval +
+    LLM-summary pipeline this wraps.
+    """
+    try:
+        return answer_health_question(request.question, thread_id=request.thread_id)
+    except LLMError:
+        _logger.exception(
+            "answer_health_question failed (LLMError) for thread_id=%s", request.thread_id
+        )
+        raise HTTPException(status_code=502, detail=_UPSTREAM_ERROR_DETAIL) from None
+    except Exception:
+        _logger.exception(
+            "answer_health_question failed unexpectedly for thread_id=%s", request.thread_id
+        )
+        raise HTTPException(status_code=500, detail=_INTERNAL_ERROR_DETAIL) from None
 
 
 @app.post(

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import subprocess
 import tempfile
 from typing import Any
 
@@ -59,7 +60,7 @@ def _get_whisper_model() -> Any:
             "`pip install faster-whisper`, or disable speech endpoints."
         ) from exc
 
-    model_size = _env_str("HEALIX_WHISPER_MODEL", "base")
+    model_size = _env_str("HEALIX_WHISPER_MODEL", "small")
     device = _env_str("HEALIX_WHISPER_DEVICE", "cpu")
     compute_type = _env_str("HEALIX_WHISPER_COMPUTE_TYPE", "int8")
 
@@ -73,12 +74,45 @@ def set_whisper_model(model: Any | None) -> None:
     _whisper_model = model
 
 
+def _ffmpeg_normalize_to_wav(src_path: str) -> str:
+    """Remux `src_path` to a 16kHz mono WAV file via ffmpeg and return the
+    new file's path.
+
+    Browser MediaRecorder audio (webm/opus on Chrome/Android, mp4/aac on
+    Safari/iOS) used to be handed to Whisper as-is. Chrome's webm
+    container is commonly written WITHOUT a valid Duration in its header —
+    a long-standing MediaRecorder limitation on streamed, non-seekable
+    output — which can throw off timestamp-dependent decoding.
+    vad_filter=True below depends on correct timing, and a malformed
+    duration was the identified cause of garbled/partial transcripts from
+    Android specifically, while Safari's mp4 output (duration normally
+    finalized) decoded cleanly. A full ffmpeg remux forces fresh, correct
+    timestamps regardless of the source container's quirks, for every
+    input format uniformly — not just the Android case.
+    """
+    wav_path = src_path + ".wav"
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", src_path, "-ar", "16000", "-ac", "1", "-f", "wav", wav_path],
+            check=True,
+            capture_output=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError) as exc:
+        raise SpeechUnavailable(f"audio normalization failed: {exc}") from exc
+    return wav_path
+
+
+# Indirected so tests can bypass real ffmpeg (see _async_sleep above for
+# the same pattern) — production always goes through _ffmpeg_normalize_to_wav.
+_normalize_to_wav = _ffmpeg_normalize_to_wav
+
+
 def transcribe(audio_bytes: bytes, *, language: str | None = None) -> str:
     """Transcribe audio bytes to text using Whisper (faster-whisper).
 
-    audio_bytes: raw audio file contents (webm, wav, mp3, ogg, …).
-        Requires ffmpeg on PATH for formats Whisper cannot read natively
-        (browser MediaRecorder webm/opus is the common case in dev UI).
+    audio_bytes: raw audio file contents (webm, wav, mp3, ogg, …) — always
+        remuxed to WAV first via _normalize_to_wav (see its docstring for
+        why this isn't just "pass the bytes straight to Whisper").
     language: BCP-47 code passed to Whisper. Defaults to HEALIX_WHISPER_LANGUAGE
         (ar) — Syrian colloquial is still tagged "ar" by Whisper.
 
@@ -94,10 +128,12 @@ def transcribe(audio_bytes: bytes, *, language: str | None = None) -> str:
         tmp.write(audio_bytes)
         tmp_path = tmp.name
 
+    wav_path: str | None = None
     try:
+        wav_path = _normalize_to_wav(tmp_path)
         model = _get_whisper_model()
         segments, _info = model.transcribe(
-            tmp_path,
+            wav_path,
             language=lang,
             beam_size=5,
             vad_filter=True,
@@ -108,10 +144,13 @@ def transcribe(audio_bytes: bytes, *, language: str | None = None) -> str:
     except Exception as exc:
         raise SpeechUnavailable(f"transcription failed: {exc}") from exc
     finally:
-        try:
-            os.unlink(tmp_path)
-        except OSError:
-            pass
+        for path in (tmp_path, wav_path):
+            if path is None:
+                continue
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
 
     if not text:
         raise SpeechUnavailable("transcription produced no text")
