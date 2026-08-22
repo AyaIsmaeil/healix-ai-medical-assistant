@@ -286,6 +286,28 @@ class RedFlagMatch:
     lowered_by_chronic_condition: bool
 
 
+@dataclass(frozen=True)
+class IncompleteRedFlagCandidate:
+    """A cited combination rule whose required core is present but whose
+    associated discriminators are not yet confirmed.
+
+    This is not a new clinical threshold: `missing_any_of` is exactly the
+    existing rule's `any_of` clause (already sourced on each RedFlagRule).
+    Isolated "ألم في الصدر" is therefore a *candidate* for acs_chest_pain,
+    not a confirmed emergency — NICE CG95 treats chest pain as needing
+    assessment of suspected ACS, not automatic emergency from the word
+    alone. Full requirement matches remain RedFlagMatch / hard emergency.
+    """
+
+    rule_id: str
+    category: str
+    reason_ar: str
+    source: str
+    matched_symptoms: frozenset[str]
+    missing_any_of: frozenset[str]
+    rejected: bool
+
+
 # --- rule set ----------------------------------------------------------
 #
 # Well-established emergency presentations only, each drawn from a named
@@ -621,9 +643,48 @@ def _validate_rule_symptoms_are_canonical(rules: tuple[RedFlagRule, ...]) -> Non
 _validate_rule_symptoms_are_canonical(RED_FLAG_RULES)
 
 
+def _normalized_names(symptoms: list[Symptom] | None) -> frozenset[str]:
+    return frozenset(
+        normalize(name) for symptom in symptoms or [] if (name := symptom.get("name"))
+    )
+
+
+def confirmed_present_names(
+    symptoms: list[Symptom],
+    negated_symptoms: list[Symptom] | None = None,
+) -> frozenset[str]:
+    """Canonical names treated as currently present for safety matching.
+
+    Explicit negation is subtracted. A name in both lists is treated as
+    denied — false-positive emergency from "ما عندي ضيق نفس" is the
+    failure mode this exists to prevent. Under-triage from a contradictory
+    extraction is a remaining extraction-quality limitation, not solved by
+    inventing a new medical threshold here.
+    """
+    return _normalized_names(symptoms) - _normalized_names(negated_symptoms)
+
+
+def _missing_any_of(requirement: SymptomRequirement, present: frozenset[str]) -> frozenset[str]:
+    """Authored any_of terms not satisfied by `present`."""
+    missing: set[str] = set()
+    for authored in requirement.any_of:
+        if not _term_matches(normalize(authored), present):
+            missing.add(authored)
+    return frozenset(missing)
+
+
+def _denied_any_of(requirement: SymptomRequirement, negated: frozenset[str]) -> frozenset[str]:
+    denied: set[str] = set()
+    for authored in requirement.any_of:
+        if _term_matches(normalize(authored), negated):
+            denied.add(authored)
+    return frozenset(denied)
+
+
 def check_red_flags(
     symptoms: list[Symptom],
     medical_record_summary: str = "",
+    negated_symptoms: list[Symptom] | None = None,
 ) -> list[RedFlagMatch]:
     """Evaluate RED_FLAG_RULES against a confirmed-symptom list.
 
@@ -644,10 +705,11 @@ def check_red_flags(
     DrugCentral-standard condition/drug names) — see
     RedFlagRule.mentions_chronic_condition and CLAUDE.md > Known
     limitations for why one mechanism does not serve both languages.
+
+    negated_symptoms are subtracted from the present set before matching
+    (explicit denial is not treated as presence).
     """
-    present = frozenset(
-        normalize(name) for symptom in symptoms if (name := symptom.get("name"))
-    )
+    present = confirmed_present_names(symptoms, negated_symptoms)
 
     matches: list[RedFlagMatch] = []
     for rule in RED_FLAG_RULES:
@@ -672,3 +734,65 @@ def check_red_flags(
             )
 
     return matches
+
+
+def find_incomplete_combination_candidates(
+    symptoms: list[Symptom],
+    medical_record_summary: str = "",
+    negated_symptoms: list[Symptom] | None = None,
+) -> list[IncompleteRedFlagCandidate]:
+    """Combination rules whose all_of is present but any_of is not confirmed.
+
+    Skips rules that already produced a hard RedFlagMatch (including
+    chronic-condition lowering, which remains a hard emergency under the
+    existing cited policy). Skips any_of-only rules (FAST, GI bleed): a
+    single listed sign is already independently sufficient, so there is
+    no "incomplete" form that would not be a hard match.
+
+    If every remaining any_of term has been explicitly negated, the
+    candidate is marked rejected — still not a new threshold: the cited
+    combination simply did not occur.
+    """
+    present = confirmed_present_names(symptoms, negated_symptoms)
+    negated = _normalized_names(negated_symptoms)
+    confirmed_ids = {match.rule_id for match in check_red_flags(
+        symptoms, medical_record_summary, negated_symptoms
+    )}
+
+    candidates: list[IncompleteRedFlagCandidate] = []
+    for rule in RED_FLAG_RULES:
+        if rule.id in confirmed_ids:
+            continue
+        requirement = rule.requirement
+        if not requirement.any_of or not requirement.all_of:
+            continue
+        all_hit = requirement.satisfied_by(present)
+        if all_hit is not None:
+            continue
+        all_of_ok = True
+        matched_all: set[str] = set()
+        for term in requirement.all_of:
+            hit = _term_matches(normalize(term), present)
+            if not hit:
+                all_of_ok = False
+                break
+            matched_all |= hit
+        if not all_of_ok:
+            continue
+
+        missing = _missing_any_of(requirement, present)
+        denied = _denied_any_of(requirement, negated)
+        still_unknown = missing - denied
+        rejected = not still_unknown
+        candidates.append(
+            IncompleteRedFlagCandidate(
+                rule_id=rule.id,
+                category=rule.category,
+                reason_ar=rule.reason_ar,
+                source=rule.source,
+                matched_symptoms=frozenset(matched_all),
+                missing_any_of=still_unknown if still_unknown else missing,
+                rejected=rejected,
+            )
+        )
+    return candidates

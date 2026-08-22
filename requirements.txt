@@ -39,6 +39,13 @@ numpy==1.26.4
 scikit-learn==1.5.2
 xgboost==2.1.4
 
+# rag/health_education/retriever.py — lightweight, pure-Python BM25
+# retrieval for the Health Education Q&A module (separate feature from
+# the triage graph's rag/knowledge_base/; see docs/AHD_DATA_PROVENANCE.md).
+# No C extension, no ML framework — not in the same category as the
+# heavy dependencies that feature was explicitly told to avoid.
+rank-bm25>=0.2.2
+
 # dev
 pytest>=8
 # tests/unit/test_api_main.py uses fastapi.testclient.TestClient, which

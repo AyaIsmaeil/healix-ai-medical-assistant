@@ -134,9 +134,27 @@ Stage = Literal["followup", "crisis", "emergency", "diagnosis"]
 # this field is scoped to the two SAFETY-terminal outcomes only.
 ThreadOutcome = Literal["crisis", "emergency"]
 
+# nodes/check_red_flags.py's explicit disposition for THIS turn's red-flag
+# screening — never an implicit `if rule or llm: emergency`. See
+# red_flags/red_flag_candidates/safety_decision's own field comments below,
+# and nodes/check_red_flags.py's module docstring for the full design.
+#
+#   HARD_EMERGENCY     — rules.red_flags.check_red_flags (the deterministic,
+#                         cited layer) fully matched a rule this turn.
+#                         Routes straight to emergency_node, same as before.
+#   NEEDS_CLARIFICATION — a cited combination rule's all_of core is present
+#                         but its any_of discriminators are not yet
+#                         confirmed OR denied. Routes to verify_red_flag —
+#                         never straight to emergency_node.
+#   NO_RED_FLAG         — neither of the above.
+SafetyDecision = Literal["HARD_EMERGENCY", "NEEDS_CLARIFICATION", "NO_RED_FLAG"]
+
 
 class HealixState(TypedDict):
-    # Set on first turn only, by load_record.
+    # Conversation identifier. Laravel owns it (ChatRequest.thread_id /
+    # conversation_id — the same string). Used as the LangGraph
+    # checkpointer thread_id. A new conversation must use a new id;
+    # reset_stage does not start a new conversation.
     thread_id: str
     medical_record_summary: str  # filtered summary from Laravel, never a raw record dump
     # Structured, from api.contracts.ChatRequest.patient_sex — Laravel's
@@ -186,19 +204,29 @@ class HealixState(TypedDict):
     turn_count: int
 
     is_crisis: bool
-    # Union of rule-based and LLM detections (OR, never AND). Each entry
-    # is a RedFlag — {"id": ..., "reason": ...} — never split across two
-    # parallel lists: the LLM's own entry (id="llm") has no rule_id to
-    # pair against a same-index reason list, which is exactly the kind of
-    # asymmetry that makes two-list pairing unsafe here. Doctor-facing,
-    # not patient-facing: emergency_node's message never uses "reason",
-    # on purpose (CLAUDE.md > Non-negotiable safety rule 1 — a matched
-    # rule's reason_ar names a clinical concern, which reads as
-    # diagnosis-adjacent). Surfaced in reports["doctor"] via
-    # nodes/generate_reports.py so a matched rule's rationale isn't lost.
-    # See nodes.check_red_flags.check_red_flags, the only place these are
-    # built, and rules.red_flags.RedFlagMatch.reason_ar for the source.
+    # Confirmed / hard-emergency hits ONLY — populated exclusively from
+    # rules.red_flags.check_red_flags (the deterministic, cited layer).
+    # Each entry is a RedFlag {"id", "reason"} — exactly those two keys,
+    # nothing more (api.contracts.ChatResponse.red_flags maps this to
+    # `[flag["id"] for flag in red_flags]`, an established contract kept
+    # unchanged). The LLM screening layer in nodes.check_red_flags never
+    # adds an entry here directly — see that module's docstring for why
+    # (it is not authorized to confirm an emergency). Recomputed fresh
+    # each turn (no reducer), same reasoning as before.
     red_flags: list[RedFlag]
+    # Cited combination rules whose all_of core is present but whose
+    # any_of discriminators are not yet confirmed or denied — the output
+    # of rules.red_flags.find_incomplete_combination_candidates(),
+    # filtered to the not-yet-rejected ones (nodes/check_red_flags.py).
+    # NOT an API emergency list — ChatResponse.red_flags stays
+    # confirmed-only. No reducer: recomputed each turn against the full
+    # accumulated symptom set, same reasoning as red_flags above.
+    red_flag_candidates: list[dict[str, Any]]
+    # This turn's explicit red-flag disposition — see SafetyDecision above
+    # for the three values and nodes/check_red_flags.py's module
+    # docstring for the full design this replaces (`if rule or llm:
+    # emergency`).
+    safety_decision: SafetyDecision | None
     # Only new clinical information may change this — never a patient objection
     # (safety rule 5). Partially wired: nodes.emergency_node sets this to
     # "emergency" unconditionally the moment it fires — a red flag firing

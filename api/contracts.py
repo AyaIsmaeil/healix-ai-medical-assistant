@@ -15,9 +15,9 @@ a time) — these are the shapes every future route must use.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from state import PatientSex, Severity, Stage
 
@@ -47,16 +47,22 @@ class Message(BaseModel):
 class ChatRequest(BaseModel):
     """One incoming turn from Laravel.
 
-    thread_id: generated and owned by Laravel (CLAUDE.md > Architecture) —
-        this service never mints its own.
+    thread_id / conversation_id: generated and owned by Laravel. This
+        service never mints either. They are the SAME identifier: the
+        LangGraph checkpointer key for one conversation. A new
+        conversation MUST send a new id; reusing an old id resumes that
+        thread (official LangGraph persistence: thread_id retrieves
+        checkpoints). Prefer conversation_id as the application name;
+        thread_id remains accepted so existing Laravel clients keep
+        working without a body-field rename.
     message: the patient's new message this turn, raw text. Not a full
         history: this service owns conversation state (CLAUDE.md >
-        Architecture) and accumulates it per thread_id across turns, so
+        Architecture) and accumulates it per conversation across turns, so
         Laravel never resends prior turns.
     medical_record_summary: a *filtered* summary (CLAUDE.md > Architecture
-        — never a raw record dump). Optional: only load_record's
-        first-turn run uses it (CLAUDE.md > Graph flow), so Laravel does
-        not need to keep resending it once a thread is underway.
+        — never a raw record dump). Optional. Patient-scoped, not
+        conversation-scoped: if Laravel includes prior chats here, that
+        is long-term patient data, not LangGraph thread leakage.
     patient_sex: structured, Laravel's own account data — never inferred
         from conversation text (see state.PatientSex's own comment).
         Optional, same reasoning as medical_record_summary: Laravel may
@@ -65,20 +71,46 @@ class ChatRequest(BaseModel):
         rag/knowledge_base/ entries; see that node's module docstring for
         what happens when it's absent and a sex-specific candidate would
         otherwise qualify (a follow-up question, not a guess).
-
-    No other metadata is currently required.
     """
 
-    thread_id: str = Field(min_length=1)
+    thread_id: str | None = Field(default=None, min_length=1)
+    conversation_id: str | None = Field(default=None, min_length=1)
     message: str = Field(min_length=1)
     medical_record_summary: str | None = None
     patient_sex: PatientSex | None = None
+
+    @model_validator(mode="after")
+    def _same_id_for_conversation_and_thread(self) -> Self:
+        """One conversation = one LangGraph thread. Fill whichever id
+        the caller omitted so api/main.py can keep using request.thread_id.
+        """
+        thread_id = self.thread_id
+        conversation_id = self.conversation_id
+        if thread_id is None and conversation_id is None:
+            raise ValueError("thread_id or conversation_id is required")
+        if (
+            thread_id is not None
+            and conversation_id is not None
+            and thread_id != conversation_id
+        ):
+            raise ValueError(
+                "thread_id and conversation_id must identify the same conversation"
+            )
+        resolved = conversation_id or thread_id
+        assert resolved is not None
+        self.thread_id = resolved
+        self.conversation_id = resolved
+        return self
 
 
 class ChatResponse(BaseModel):
     """One outgoing turn to Laravel, once a graph run reaches END.
 
     thread_id: echoed back so a response is traceable on its own.
+        This is the LangGraph checkpointer key and equals conversation_id.
+    conversation_id: the application-level name for the same id. Echoed
+        so Laravel can persist the mapping without treating thread_id as
+        an internal LangGraph detail. Always equal to thread_id.
     reply: the patient-facing message for this turn — Syrian colloquial
         Arabic (CLAUDE.md > Language) — taken from the last assistant-role
         Message appended to state["messages"] by whichever terminal node
@@ -108,6 +140,7 @@ class ChatResponse(BaseModel):
     """
 
     thread_id: str
+    conversation_id: str | None = None
     reply: str
     stage: Stage
     is_crisis: bool
@@ -116,6 +149,16 @@ class ChatResponse(BaseModel):
     diagnosis: dict | None = None
     specialty: str | None = None
     reports: dict | None = None
+
+    @model_validator(mode="after")
+    def _echo_conversation_id(self) -> Self:
+        if self.conversation_id is None:
+            self.conversation_id = self.thread_id
+        elif self.conversation_id != self.thread_id:
+            raise ValueError(
+                "thread_id and conversation_id must identify the same conversation"
+            )
+        return self
 
 
 class SpeechTranscribeResponse(BaseModel):

@@ -171,9 +171,11 @@ def _extraction_response(symptoms) -> _ProviderResponse:
     return _ProviderResponse(text=json.dumps(payload, ensure_ascii=False))
 
 
-def _red_flag_response(has_red_flag: bool) -> _ProviderResponse:
+def _red_flag_response(potential_red_flag: bool) -> _ProviderResponse:
     return _ProviderResponse(
-        text=json.dumps({"has_red_flag": has_red_flag, "reasoning": None}, ensure_ascii=False)
+        text=json.dumps(
+            {"potential_red_flag": potential_red_flag, "reasoning": None}, ensure_ascii=False
+        )
     )
 
 

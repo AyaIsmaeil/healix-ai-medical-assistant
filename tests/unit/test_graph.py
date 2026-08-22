@@ -67,8 +67,8 @@ def _extract_symptoms_response(symptoms=(), negated=(), unmatched=()) -> _Provid
     return _ProviderResponse(text=json.dumps(payload, ensure_ascii=False))
 
 
-def _check_red_flags_response(has_red_flag: bool) -> _ProviderResponse:
-    payload = {"has_red_flag": has_red_flag, "reasoning": None}
+def _check_red_flags_response(potential_red_flag: bool) -> _ProviderResponse:
+    payload = {"potential_red_flag": potential_red_flag, "reasoning": None}
     return _ProviderResponse(text=json.dumps(payload, ensure_ascii=False))
 
 
@@ -306,6 +306,7 @@ def test_build_graph_wires_the_full_currently_implemented_topology():
             "extract_symptoms",
             "check_red_flags",
             "emergency_node",
+            "verify_red_flag",
             "assess_sufficiency",
             "ask_followup",
             "rag_retrieve",
@@ -326,9 +327,12 @@ def test_build_graph_wires_the_full_currently_implemented_topology():
             ("extract_symptoms", "check_red_flags"),
             ("check_red_flags", "emergency_node"),
             ("check_red_flags", "reiterate_terminal_outcome"),
+            ("check_red_flags", "verify_red_flag"),
             ("check_red_flags", "assess_sufficiency"),
             ("emergency_node", "__end__"),
             ("reiterate_terminal_outcome", "__end__"),
+            ("verify_red_flag", "ask_followup"),
+            ("verify_red_flag", "assess_sufficiency"),
             ("assess_sufficiency", "ask_followup"),
             ("assess_sufficiency", "rag_retrieve"),
             ("assess_sufficiency", "__end__"),
@@ -486,7 +490,17 @@ def test_a_turn_where_assess_sufficiency_is_insufficient_never_lets_rag_retrieve
                         {"name": "الم بطن"},
                         {"name": "الم اسفل الظهر"},
                         {"name": "غثيان"},
-                    ]
+                    ],
+                    # "الم بطن" is also ectopic_pregnancy's own all_of term
+                    # (rules/red_flags.py) — explicitly negating its two
+                    # any_of discriminators keeps that candidate rejected,
+                    # so this turn reaches assess_sufficiency the way this
+                    # test intends, not nodes/verify_red_flag.py's
+                    # clarification branch.
+                    negated=[
+                        {"name": normalize("نزيف مهبلي")},
+                        {"name": normalize("تأخر الدورة الشهرية")},
+                    ],
                 ),
                 _check_red_flags_response(False),
                 _sufficiency_response(False, next_question=question),
@@ -572,24 +586,44 @@ def test_thread_outcome_sticky_repeat_after_emergency_reproduces_the_manual_scen
     # reiterate_terminal_outcome reminder, not a fresh run through
     # assess_sufficiency/rag_retrieve/diagnose.
     #
-    # Turn 1's red flag comes from check_red_flags's LLM layer alone
-    # (has_red_flag=True with EMPTY extracted symptoms, so the
-    # deterministic rule engine has nothing to match against — see
-    # rules/red_flags.py: an empty confirmed-symptom set satisfies no
-    # rule's requirement). This isolates the mechanism under test: a
-    # RULE-matched red flag would keep re-matching every later turn on
-    # its own (the causal symptoms never leave the accumulated
-    # state["symptoms"]), which is a different, also-safe code path, not
-    # what's being proven here.
+    # Turn 1's red flag comes from the deterministic rule engine — chest
+    # pain + shortness of breath fires acs_chest_pain and
+    # pulmonary_embolism (same combination verified in
+    # test_invoking_the_graph_with_a_red_flag_reaches_emergency_node
+    # above). Since nodes/check_red_flags.py's candidate/confirmed
+    # rewrite, the LLM's potential_red_flag screen alone can no longer
+    # independently produce state["red_flags"]/route to emergency_node
+    # (see that module's own docstring — it is a screen, not a
+    # disposition), so a real rule match is what this test needs to
+    # exercise thread_outcome stickiness with.
     provider = FakeProvider(
         responses=[
-            # Turn 1: emergency, via the LLM red-flag layer only.
+            # Turn 1: emergency, via the real deterministic rule engine.
             _crisis_check_response(False),
-            _extract_symptoms_response(symptoms=[]),
-            _check_red_flags_response(True),
-            # Turn 2: nothing new escalates.
+            _extract_symptoms_response(
+                symptoms=[
+                    {"name": normalize("ألم في الصدر")},
+                    {"name": normalize("ضيق تنفس")},
+                ]
+            ),
+            _check_red_flags_response(False),
+            # Turn 2: nothing new escalates. Unlike a plain "no new
+            # symptoms" turn, this one must also NEGATE turn 1's causal
+            # symptoms — state.merge_symptoms never removes an entry from
+            # state["symptoms"], so without an explicit denial the
+            # deterministic rule engine would keep re-matching on its own
+            # every later turn (a real, also-safe path, just not the one
+            # this test isolates: thread_outcome stickiness routing
+            # through reiterate_terminal_outcome specifically, which only
+            # applies when check_red_flags finds nothing this turn).
             _crisis_check_response(False),
-            _extract_symptoms_response(symptoms=[]),
+            _extract_symptoms_response(
+                symptoms=[],
+                negated=[
+                    {"name": normalize("ألم في الصدر")},
+                    {"name": normalize("ضيق تنفس")},
+                ],
+            ),
             _check_red_flags_response(False),
         ]
     )
@@ -643,12 +677,23 @@ def test_thread_outcome_does_not_block_a_genuine_new_crisis_escalation():
     # (test_a_genuine_new_red_flag_still_reaches_emergency_node_even_if_thread_outcome_already_set).
     provider = FakeProvider(
         responses=[
-            # Turn 1: emergency, via the LLM red-flag layer only (same
-            # isolation reasoning as the test above).
+            # Turn 1: emergency, via the real deterministic rule engine
+            # (same reasoning as test_thread_outcome_sticky_repeat_after_emergency_reproduces_the_manual_scenario
+            # above — the LLM's potential_red_flag screen alone can no
+            # longer independently route to emergency_node).
             _crisis_check_response(False),
-            _extract_symptoms_response(symptoms=[]),
-            _check_red_flags_response(True),
-            # Turn 2: a genuine new crisis signal.
+            _extract_symptoms_response(
+                symptoms=[
+                    {"name": normalize("ألم في الصدر")},
+                    {"name": normalize("ضيق تنفس")},
+                ]
+            ),
+            _check_red_flags_response(False),
+            # Turn 2: a genuine new crisis signal. crisis_check runs
+            # first, unconditionally, and routes straight to crisis_node
+            # without ever reaching check_red_flags this turn — turn 1's
+            # accumulated symptoms are irrelevant here, unlike the sticky-
+            # repeat test above.
             _crisis_check_response(True),
             _crisis_node_response("فهمتك، خلينا نحكي عن هلق."),
         ]
@@ -786,7 +831,28 @@ def test_invoking_the_graph_full_chain_produces_an_ml_corroboration_signal_for_u
         FakeProvider(
             responses=[
                 _crisis_check_response(False),
-                _extract_symptoms_response(symptoms=[{"name": n} for n in uti_symptoms]),
+                _extract_symptoms_response(
+                    symptoms=[{"name": n} for n in uti_symptoms],
+                    # UTI's own real symptoms double as two different
+                    # rules' all_of terms (rules/red_flags.py): "حمى"
+                    # (bacterial_meningitis, sepsis) and "ألم أسفل البطن"
+                    # (subsumes into ectopic_pregnancy's "ألم بطن").
+                    # Explicitly negating every one of those three rules'
+                    # any_of discriminators keeps all three candidates
+                    # rejected, so this turn reaches diagnose directly, as
+                    # this test intends.
+                    negated=[
+                        {"name": normalize("تيبس الرقبة")},
+                        {"name": normalize("صداع شديد ومفاجئ")},
+                        {"name": normalize("حساسية للضوء")},
+                        {"name": normalize("تغير مفاجئ في مستوى الوعي")},
+                        {"name": normalize("تخليط ذهني مفاجئ")},
+                        {"name": normalize("تسارع في التنفس")},
+                        {"name": normalize("إغماء أو دوخة شديدة")},
+                        {"name": normalize("نزيف مهبلي")},
+                        {"name": normalize("تأخر الدورة الشهرية")},
+                    ],
+                ),
                 _check_red_flags_response(False),
                 _sufficiency_response(True),
                 _diagnose_response(
@@ -845,7 +911,15 @@ def test_invoking_the_graph_produces_no_ml_corroboration_when_the_model_disagree
         FakeProvider(
             responses=[
                 _crisis_check_response(False),
-                _extract_symptoms_response(symptoms=[{"name": n} for n in dysmenorrhea_symptoms]),
+                _extract_symptoms_response(
+                    symptoms=[{"name": n} for n in dysmenorrhea_symptoms],
+                    # Same ectopic_pregnancy subsumption note as the UTI
+                    # test above ("الم بطن" is that rule's own all_of term).
+                    negated=[
+                        {"name": normalize("نزيف مهبلي")},
+                        {"name": normalize("تأخر الدورة الشهرية")},
+                    ],
+                ),
                 _check_red_flags_response(False),
                 _sufficiency_response(True),
                 _diagnose_response("differential", differential=["Dysmenorrhea"], reasoning="تطابق"),

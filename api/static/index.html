@@ -69,7 +69,7 @@
   header {
     display: flex;
     justify-content: space-between;
-    align-items: baseline;
+    align-items: center;
     gap: 8px;
     flex-wrap: wrap;
   }
@@ -162,7 +162,13 @@
     font-size: 14px;
     cursor: pointer;
   }
-  button:disabled { opacity: 0.5; cursor: default; }
+  #new-conversation {
+    padding: 6px 12px;
+    font-size: 12px;
+    background: transparent;
+    color: var(--text);
+    border: 1px solid var(--border);
+  }
 </style>
 </head>
 <body>
@@ -177,6 +183,7 @@
   <header>
     <h1>Healix AI — dev chat</h1>
     <span id="thread-id"></span>
+    <button type="button" id="new-conversation">محادثة جديدة</button>
   </header>
 
   <div id="messages"></div>
@@ -194,16 +201,22 @@
   // real shared secret to keep working against it.
   const internalToken = "__HEALIX_INTERNAL_TOKEN__";
 
-  // One random thread_id per page load, reused for every message this
-  // session — the checkpointer (graph.build_checkpointer(), keyed by
-  // thread_id) is what makes the conversation persist turn to turn.
-  const threadId = crypto.randomUUID();
-  document.getElementById("thread-id").textContent = "thread_id: " + threadId;
+  // One random conversation/thread id per conversation. Reused for every
+  // message in that conversation — the checkpointer (keyed by thread_id)
+  // is what makes turns persist. "محادثة جديدة" mints a NEW id so the
+  // previous checkpoint is not loaded. This page never uses a patient id.
+  let threadId = crypto.randomUUID();
+  const threadIdEl = document.getElementById("thread-id");
+  function showThreadId() {
+    threadIdEl.textContent = "conversation_id / thread_id: " + threadId;
+  }
+  showThreadId();
 
   const messagesEl = document.getElementById("messages");
   const formEl = document.getElementById("form");
   const inputEl = document.getElementById("input");
   const sendEl = document.getElementById("send");
+  const newConversationEl = document.getElementById("new-conversation");
 
   function addBubble(role, text, meta) {
     const row = document.createElement("div");
@@ -253,7 +266,11 @@
           "Content-Type": "application/json",
           "X-Healix-Internal-Token": internalToken,
         },
-        body: JSON.stringify({ thread_id: threadId, message: text }),
+        body: JSON.stringify({
+          thread_id: threadId,
+          conversation_id: threadId,
+          message: text,
+        }),
       });
 
       typingEl.remove();
@@ -274,6 +291,13 @@
       inputEl.focus();
     }
   }
+
+  newConversationEl.addEventListener("click", () => {
+    threadId = crypto.randomUUID();
+    showThreadId();
+    messagesEl.replaceChildren();
+    inputEl.focus();
+  });
 
   formEl.addEventListener("submit", (event) => {
     event.preventDefault();

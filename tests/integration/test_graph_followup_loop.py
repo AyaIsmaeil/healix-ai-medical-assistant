@@ -76,7 +76,7 @@ def _extraction_response(symptoms: list[dict]) -> _ProviderResponse:
 
 
 def _no_red_flag_response() -> _ProviderResponse:
-    payload = {"has_red_flag": False, "reasoning": None}
+    payload = {"potential_red_flag": False, "reasoning": None}
     return _ProviderResponse(text=json.dumps(payload, ensure_ascii=False))
 
 

@@ -63,6 +63,32 @@ def test_chat_request_rejects_empty_thread_id():
         ChatRequest(thread_id="", message="عندي صداع")
 
 
+def test_chat_request_thread_id_only_fills_conversation_id_to_the_same_value():
+    request = ChatRequest(thread_id="thread-1", message="عندي صداع")
+    assert request.thread_id == "thread-1"
+    assert request.conversation_id == "thread-1"
+
+
+def test_chat_request_conversation_id_only_fills_thread_id_to_the_same_value():
+    request = ChatRequest(conversation_id="conv-1", message="عندي صداع")
+    assert request.thread_id == "conv-1"
+    assert request.conversation_id == "conv-1"
+
+
+def test_chat_request_rejects_when_neither_id_is_sent():
+    with pytest.raises(ValidationError):
+        ChatRequest(message="عندي صداع")
+
+
+def test_chat_request_rejects_mismatched_thread_id_and_conversation_id():
+    with pytest.raises(ValidationError):
+        ChatRequest(
+            thread_id="thread-a",
+            conversation_id="thread-b",
+            message="عندي صداع",
+        )
+
+
 def test_chat_request_rejects_empty_message():
     with pytest.raises(ValidationError):
         ChatRequest(thread_id="thread-1", message="")
@@ -83,6 +109,8 @@ def test_chat_response_accepts_a_minimal_followup_turn():
         stage="followup",
         is_crisis=False,
     )
+    assert response.thread_id == "thread-1"
+    assert response.conversation_id == "thread-1"
     assert response.stage == "followup"
     assert response.severity is None
     assert response.red_flags == []

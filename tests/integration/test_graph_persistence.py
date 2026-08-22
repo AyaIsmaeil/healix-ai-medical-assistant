@@ -36,6 +36,7 @@ import llm_client
 from llm_client import _ProviderResponse, set_provider
 
 from graph import build_checkpointer, build_graph
+from rules.crisis import normalize
 
 
 class FakeProvider:
@@ -63,7 +64,7 @@ def _empty_extraction_response() -> _ProviderResponse:
 
 
 def _no_red_flag_response() -> _ProviderResponse:
-    payload = {"has_red_flag": False, "reasoning": None}
+    payload = {"potential_red_flag": False, "reasoning": None}
     return _ProviderResponse(text=json.dumps(payload, ensure_ascii=False))
 
 
@@ -107,6 +108,52 @@ def _open_graph(sqlite_path, monkeypatch):
     monkeypatch.delenv("HEALIX_POSTGRES_DSN", raising=False)
     checkpointer = build_checkpointer()
     return checkpointer, build_graph(checkpointer)
+
+
+def _extraction_response(symptoms=(), *, duration=None) -> _ProviderResponse:
+    entries = []
+    for name in symptoms:
+        entry = {"name": name}
+        if duration is not None:
+            entry["duration"] = duration
+        entries.append(entry)
+    payload = {
+        "symptoms": entries,
+        "negated_symptoms": [],
+        "unmatched_mentions": [],
+    }
+    return _ProviderResponse(text=json.dumps(payload, ensure_ascii=False))
+
+
+def _ordinary_turn_responses(*, symptoms=(), duration=None) -> list[_ProviderResponse]:
+    return [
+        _no_crisis_response(),
+        _extraction_response(symptoms, duration=duration),
+        _no_red_flag_response(),
+        _sufficient_response(),
+    ]
+
+
+def _emergency_turn_responses() -> list[_ProviderResponse]:
+    # Real deterministic rule match (chest pain + shortness of breath ->
+    # acs_chest_pain + pulmonary_embolism) — since nodes/check_red_flags.py's
+    # candidate/confirmed rewrite, the LLM's potential_red_flag screen
+    # alone can no longer independently route to emergency_node (see that
+    # module's docstring). Existing emergency path, used here only to
+    # prove thread_outcome does not leak to a different conversation.
+    return [
+        _no_crisis_response(),
+        _extraction_response([normalize("ألم في الصدر"), normalize("ضيق تنفس")]),
+        _no_red_flag_response(),
+    ]
+
+
+def _symptom_names(state) -> list[str]:
+    return [symptom.get("name") for symptom in state.get("symptoms") or []]
+
+
+def _state_blob(state) -> str:
+    return json.dumps(state, ensure_ascii=False, default=str)
 
 
 def test_state_persists_across_invocations_on_the_same_thread_id(tmp_path, monkeypatch):
@@ -173,3 +220,254 @@ def test_different_thread_ids_do_not_see_each_others_state(tmp_path, monkeypatch
     # threads could belong to two different patients).
     assert "أعراض المريض ب" not in json.dumps(state_a, ensure_ascii=False)
     assert "أعراض المريض أ" not in json.dumps(state_b, ensure_ascii=False)
+
+
+HEADACHE = normalize("صداع")
+# NOT "ألم بطن" (abdominal pain) — that term is RED_FLAG_RULES's
+# ectopic_pregnancy rule's own all_of, so using it here would make these
+# conversation-isolation tests accidentally exercise
+# nodes/verify_red_flag.py's clarification path (a real, correct
+# consequence of that rule's design, just not what this file is testing).
+# "سعال" (cough), like HEADACHE above, is referenced by no rule at all —
+# confirmed directly against RED_FLAG_RULES, same discipline
+# tests/unit/test_nodes_check_red_flags.py's own ORDINARY_SYMPTOM uses.
+ABDOMINAL_PAIN = normalize("سعال")
+
+
+def test_a_new_conversation_does_not_inherit_prior_conversation_clinical_state(
+    tmp_path, monkeypatch
+):
+    """Test A: conversation B must not contain A's headache, messages,
+    candidates, reports, or thread outcome.
+    """
+    sqlite_path = tmp_path / "checkpoints.sqlite"
+    set_provider(
+        FakeProvider(
+            responses=[
+                *_ordinary_turn_responses(symptoms=[HEADACHE]),
+                *_ordinary_turn_responses(symptoms=[ABDOMINAL_PAIN]),
+            ]
+        )
+    )
+    checkpointer, graph = _open_graph(sqlite_path, monkeypatch)
+    config_a = {"configurable": {"thread_id": "conversation-a"}}
+    config_b = {"configurable": {"thread_id": "conversation-b"}}
+
+    graph.invoke(
+        {
+            "thread_id": "conversation-a",
+            "messages": [{"role": "user", "content": "عندي صداع"}],
+        },
+        config=config_a,
+    )
+    graph.invoke(
+        {
+            "thread_id": "conversation-b",
+            "messages": [{"role": "user", "content": "عندي ألم بالبطن"}],
+        },
+        config=config_b,
+    )
+
+    snapshot_a = graph.get_state(config_a)
+    snapshot_b = graph.get_state(config_b)
+    state_a = snapshot_a.values
+    state_b = snapshot_b.values
+    checkpointer.conn.close()
+
+    assert snapshot_a.config["configurable"]["thread_id"] == "conversation-a"
+    assert snapshot_b.config["configurable"]["thread_id"] == "conversation-b"
+
+    assert HEADACHE in _symptom_names(state_a)
+    assert ABDOMINAL_PAIN in _symptom_names(state_b)
+    assert HEADACHE not in _symptom_names(state_b)
+    assert ABDOMINAL_PAIN not in _symptom_names(state_a)
+
+    blob_b = _state_blob(state_b)
+    assert "عندي صداع" not in blob_b
+    assert HEADACHE not in blob_b
+    assert state_b.get("thread_outcome") in (None, )
+    assert state_a.get("thread_outcome") in (None, )
+
+    a_reports = state_a.get("reports") or {}
+    b_reports = state_b.get("reports") or {}
+    if a_reports:
+        assert a_reports != b_reports or "صداع" not in json.dumps(b_reports, ensure_ascii=False)
+
+
+def test_b_emergency_thread_outcome_does_not_leak_into_a_new_conversation(
+    tmp_path, monkeypatch
+):
+    """Test B: conversation A reaches emergency; B starts clean."""
+    sqlite_path = tmp_path / "checkpoints.sqlite"
+    set_provider(
+        FakeProvider(
+            responses=[
+                *_emergency_turn_responses(),
+                *_ordinary_turn_responses(symptoms=[HEADACHE]),
+            ]
+        )
+    )
+    checkpointer, graph = _open_graph(sqlite_path, monkeypatch)
+    config_a = {"configurable": {"thread_id": "conversation-emergency"}}
+    config_b = {"configurable": {"thread_id": "conversation-new"}}
+
+    turn_a = graph.invoke(
+        {
+            "thread_id": "conversation-emergency",
+            "messages": [{"role": "user", "content": "عندي شي مو طبيعي وخايف"}],
+        },
+        config=config_a,
+    )
+    graph.invoke(
+        {
+            "thread_id": "conversation-new",
+            "messages": [{"role": "user", "content": "عندي صداع"}],
+        },
+        config=config_b,
+    )
+
+    state_a = graph.get_state(config_a).values
+    state_b = graph.get_state(config_b).values
+    checkpointer.conn.close()
+
+    assert turn_a["thread_outcome"] == "emergency"
+    assert state_a["thread_outcome"] == "emergency"
+    assert state_a["stage"] == "emergency"
+    assert state_b.get("thread_outcome") is None
+    assert state_b["stage"] != "emergency"
+    assert "emergency" not in json.dumps(state_b.get("reports") or {}, ensure_ascii=False)
+
+
+def test_c_same_conversation_preserves_state_across_turns(tmp_path, monkeypatch):
+    """Test C: turn 2 on the same conversation keeps headache and adds duration."""
+    sqlite_path = tmp_path / "checkpoints.sqlite"
+    config = {"configurable": {"thread_id": "conversation-same"}}
+    set_provider(
+        FakeProvider(
+            responses=[
+                *_ordinary_turn_responses(symptoms=[HEADACHE]),
+                *_ordinary_turn_responses(symptoms=[HEADACHE], duration="من مبارح"),
+            ]
+        )
+    )
+    checkpointer, graph = _open_graph(sqlite_path, monkeypatch)
+    graph.invoke(
+        {
+            "thread_id": "conversation-same",
+            "messages": [{"role": "user", "content": "عندي صداع"}],
+        },
+        config=config,
+    )
+    graph.invoke(
+        {
+            "thread_id": "conversation-same",
+            "messages": [{"role": "user", "content": "من مبارح"}],
+        },
+        config=config,
+    )
+
+    state = graph.get_state(config).values
+    checkpointer.conn.close()
+
+    assert state["messages"][0] == {"role": "user", "content": "عندي صداع"}
+    assert state["messages"][2] == {"role": "user", "content": "من مبارح"}
+    names = _symptom_names(state)
+    assert names == [HEADACHE]
+    headache = state["symptoms"][0]
+    assert headache["duration"] == "من مبارح"
+
+
+def test_d_two_simultaneous_conversations_for_the_same_patient_stay_isolated(
+    tmp_path, monkeypatch
+):
+    """Test D: same patient_sex and record summary, two conversation ids."""
+    sqlite_path = tmp_path / "checkpoints.sqlite"
+    patient = {
+        "patient_sex": "female",
+        "medical_record_summary": "Diabetes mellitus type 2",
+    }
+    set_provider(
+        FakeProvider(
+            responses=[
+                *_ordinary_turn_responses(symptoms=[HEADACHE]),
+                *_ordinary_turn_responses(symptoms=[ABDOMINAL_PAIN]),
+            ]
+        )
+    )
+    checkpointer, graph = _open_graph(sqlite_path, monkeypatch)
+    config_a = {"configurable": {"thread_id": "patient-1-conv-a"}}
+    config_b = {"configurable": {"thread_id": "patient-1-conv-b"}}
+
+    graph.invoke(
+        {
+            "thread_id": "patient-1-conv-a",
+            **patient,
+            "messages": [{"role": "user", "content": "عندي صداع"}],
+        },
+        config=config_a,
+    )
+    graph.invoke(
+        {
+            "thread_id": "patient-1-conv-b",
+            **patient,
+            "messages": [{"role": "user", "content": "عندي ألم بالبطن"}],
+        },
+        config=config_b,
+    )
+
+    state_a = graph.get_state(config_a).values
+    state_b = graph.get_state(config_b).values
+    checkpointer.conn.close()
+
+    assert state_a.get("patient_sex") == "female"
+    assert state_b.get("patient_sex") == "female"
+    assert HEADACHE in _symptom_names(state_a)
+    assert HEADACHE not in _symptom_names(state_b)
+    assert ABDOMINAL_PAIN in _symptom_names(state_b)
+    assert "عندي صداع" not in _state_blob(state_b)
+    assert "عندي ألم بالبطن" not in _state_blob(state_a)
+    assert (state_a.get("turn_count") or 0) == (state_b.get("turn_count") or 0)
+
+
+def test_e_langgraph_checkpoints_are_keyed_separately_per_thread_id(
+    tmp_path, monkeypatch
+):
+    """Test E: graph.get_state() on each thread_id returns that thread only."""
+    sqlite_path = tmp_path / "checkpoints.sqlite"
+    set_provider(
+        FakeProvider(
+            responses=[
+                *_ordinary_turn_responses(symptoms=[HEADACHE]),
+                *_ordinary_turn_responses(symptoms=[ABDOMINAL_PAIN]),
+            ]
+        )
+    )
+    checkpointer, graph = _open_graph(sqlite_path, monkeypatch)
+    config_a = {"configurable": {"thread_id": "ckpt-a"}}
+    config_b = {"configurable": {"thread_id": "ckpt-b"}}
+
+    graph.invoke(
+        {"thread_id": "ckpt-a", "messages": [{"role": "user", "content": "عندي صداع"}]},
+        config=config_a,
+    )
+    graph.invoke(
+        {
+            "thread_id": "ckpt-b",
+            "messages": [{"role": "user", "content": "عندي ألم بالبطن"}],
+        },
+        config=config_b,
+    )
+
+    snapshot_a = graph.get_state(config_a)
+    snapshot_b = graph.get_state(config_b)
+    missing = graph.get_state({"configurable": {"thread_id": "ckpt-never-used"}})
+    checkpointer.conn.close()
+
+    assert snapshot_a.config["configurable"]["thread_id"] == "ckpt-a"
+    assert snapshot_b.config["configurable"]["thread_id"] == "ckpt-b"
+    assert snapshot_a.values["thread_id"] == "ckpt-a"
+    assert snapshot_b.values["thread_id"] == "ckpt-b"
+    assert HEADACHE in _symptom_names(snapshot_a.values)
+    assert ABDOMINAL_PAIN in _symptom_names(snapshot_b.values)
+    assert not missing.values.get("messages")
+    assert not missing.values.get("symptoms")

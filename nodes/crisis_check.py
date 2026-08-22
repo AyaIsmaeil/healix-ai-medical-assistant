@@ -1,42 +1,15 @@
-"""crisis_check: the first node in the graph (CLAUDE.md > Graph flow).
+"""crisis_check: first node in the graph. Combines a deterministic
+keyword layer (rules.crisis.detect_crisis, raw message only) with an LLM
+layer (quality tier) via OR — never removed or weakened, per this
+project's safety rules. Only sets is_crisis; graph.py routes the actual
+bypass to crisis_node.
 
-Combines two independent detectors of acute psychological distress or
-self-harm signal with OR, per CLAUDE.md > Non-negotiable safety rule 3:
+The LLM also sees the previous assistant message (one turn of context),
+so a terse reply like "أيوة" can be read against what was just asked —
+the deterministic layer stays raw-message-only, unaffected.
 
-  - rules.crisis.detect_crisis — the deterministic layer, matched against
-    the raw patient message ALONE, exactly as extract_symptoms/rules
-    receive it. Never removed, weakened, or made conditional on the LLM
-    result, and never given the extra context below either — widening
-    what this layer matches against is a separate, deliberate decision
-    this change does not make.
-  - an LLM call against prompts/templates/crisis_check.txt, constrained to
-    schemas.crisis.CrisisCheckResult, on the "quality" tier — crisis
-    detection is the least acceptable place for a weaker model.
-
-Either one firing sets is_crisis. This node only decides the flag itself;
-routing a crisis straight to the terminal crisis_node, bypassing
-extract_symptoms and RAG entirely (safety rule 4), is graph.py's job, not
-this one's — that is why this file has no branching logic in it.
-
---- One turn of conversational context, LLM layer only. Same fix as
-nodes/extract_symptoms.py, applied here after that one was verified: a
-terse or ambiguous reply ("أيوة", "مش مهم") can mean something different
-depending on what was just asked, and the LLM layer previously judged it
-from the bare text alone. previous_assistant_message (nodes/_shared.py)
-supplies the single immediately-preceding assistant message, or the
-"لا يوجد" placeholder on a first turn — one turn of context, not the full
-history, same scope as extract_symptoms's fix. This ONLY reaches the LLM
-call above; rule_result is computed from `message` alone, before this
-context is even built, so the deterministic layer and the OR combination
-below are both completely unaffected — this is strictly additional
-context for the LLM's own judgment, not a change to what "matched" means
-for either layer.
-
-Both detectors' verdicts are audit-logged together via
-audit.logger.log_crisis_detection, separately from the LLM call's own
-audit record (which llm_client.call_llm already writes on every call) — so
-it is later possible to measure how often each layer catches something the
-other missed, not just how often the combined flag ends up True.
+Both verdicts are audit-logged separately (not just the combined result)
+to measure how often each layer catches something the other misses.
 """
 
 from __future__ import annotations
@@ -55,11 +28,9 @@ _NO_ENTRIES_PLACEHOLDER = "لا يوجد"
 
 
 def crisis_check(state: HealixState) -> dict[str, Any]:
-    """Run both crisis detectors on this turn's patient message and OR them."""
     message = latest_user_message(state)
 
-    # Deterministic layer: raw message only, computed before the LLM
-    # prompt (and its extra context) is even built — see module docstring.
+    # Raw message only — computed before the LLM's extra context is built.
     rule_result = detect_crisis(message)
 
     previous_question = previous_assistant_message(state)

@@ -54,3 +54,22 @@ def test_reset_stage_clears_any_previous_stage_value(previous_stage):
     result = reset_stage({"thread_id": "t1", "stage": previous_stage})
 
     assert result["stage"] is None
+
+
+def test_reset_stage_does_not_clear_conversation_scoped_fields():
+    # Phase 1: reset_stage is a turn-level stage wipe, not CREATE NEW
+    # CONVERSATION. Sticky/accumulated fields stay on the checkpointed
+    # thread; a new conversation is a new thread_id.
+    incoming = {
+        "thread_id": "t1",
+        "stage": "emergency",
+        "thread_outcome": "emergency",
+        "messages": [{"role": "user", "content": "عندي صداع"}],
+        "symptoms": [{"name": "صداع"}],
+    }
+    result = reset_stage(incoming)
+
+    assert set(result) == {"stage"}
+    assert incoming["thread_outcome"] == "emergency"
+    assert incoming["messages"] == [{"role": "user", "content": "عندي صداع"}]
+    assert incoming["symptoms"] == [{"name": "صداع"}]
