@@ -51,3 +51,4 @@ CLAUDE.md
 healix_checkpoints.sqlite*
 
 docs/*
+data/ahd_raw/*.xlsx
