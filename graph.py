@@ -44,19 +44,10 @@ _logger = logging.getLogger("healix.graph")
 _DEFAULT_SQLITE_PATH = "healix_checkpoints.sqlite"
 
 
+
+#
 def build_checkpointer() -> BaseCheckpointSaver:
     """Select and construct the checkpointer this service's conversation
-    memory rests on: PostgresSaver if HEALIX_POSTGRES_DSN is set,
-    otherwise SqliteSaver for local development.
-
-    This is a deliberate either/or on one explicitly named setting, not a
-    try-Postgres-then-fall-back: if HEALIX_POSTGRES_DSN is set and the
-    connection fails, that failure propagates rather than silently
-    degrading to a local SQLite file — the same "no silent fallback"
-    reasoning llm_client.py applies to provider selection (CLAUDE.md >
-    LLM tiers). An *unset* DSN is not a failure at all; it is local-dev
-    mode, chosen on purpose, and logged as such so it is never mistaken
-    for an accident.
     """
     dsn = os.getenv("HEALIX_POSTGRES_DSN", "").strip()
     if dsn:
@@ -65,12 +56,6 @@ def build_checkpointer() -> BaseCheckpointSaver:
             dsn, autocommit=True, prepare_threshold=0, row_factory=dict_row
         )
         checkpointer = PostgresSaver(conn)
-        # Unlike SqliteSaver (which sets itself up lazily on first use and
-        # documents that callers should NOT call setup() directly),
-        # PostgresSaver's own docstring requires this to be called
-        # explicitly on first use. Idempotent: tracks applied migrations
-        # and no-ops once up to date, so calling it on every startup is
-        # the correct, intended usage, not a repeated side effect.
         checkpointer.setup()
         return checkpointer
 
@@ -85,47 +70,11 @@ def build_checkpointer() -> BaseCheckpointSaver:
 
 def _route_after_crisis_check(state: HealixState) -> str:
     """crisis_check -> crisis_node if it set is_crisis, else on to extract_symptoms.
-
-    Safety rule 4 (CLAUDE.md): the crisis path bypasses everything else —
-    there is no third option here. Runs identically regardless of
-    state["thread_outcome"] (CLAUDE.md > Non-negotiable safety rule 13):
-    a genuine new crisis signal must always be able to reach the real
-    crisis_node, even on a thread that already reached "emergency" on an
-    earlier turn — this function has no awareness of thread_outcome at
-    all, on purpose, so there is nothing here that could suppress it.
     """
     return "crisis_node" if state.get("is_crisis") else "extract_symptoms"
 
 
 def _route_after_check_red_flags(state: HealixState) -> str:
-    """check_red_flags -> emergency_node on a hard rule match this turn,
-    else -> reiterate_terminal_outcome if this thread already reached a
-    terminal safety outcome on an earlier turn and nothing new escalated
-    this turn, else -> verify_red_flag if a cited candidate is still
-    unresolved, else -> assess_sufficiency.
-
-    Safety rule 4 (CLAUDE.md): the red-flag path bypasses RAG and
-    diagnosis entirely, straight to its terminal node — same reasoning as
-    crisis_check's branch above. red_flags is checked BEFORE
-    thread_outcome deliberately (CLAUDE.md > Non-negotiable safety rule
-    13): a genuine NEW red flag must still reach emergency_node even on a
-    thread that already reached "crisis" — state["thread_outcome"] (state.py)
-    has no reducer, so whichever terminal node fires most recently is
-    simply what gets recorded, and this ordering is what lets a later,
-    real escalation actually reach it rather than being silently
-    swallowed by the "already terminal" branch below.
-
-    red_flag_candidates is checked AFTER thread_outcome, not before: once
-    a thread already reached crisis/emergency and nothing NEW escalated
-    this turn, an unresolved candidate is still "normal symptom triage"
-    in the sense safety rule 13 means to bypass — reiterate_terminal_outcome's
-    fixed reminder takes priority over asking a clarification question on
-    an already-terminal thread. See nodes/check_red_flags.py's module
-    docstring for the full candidate/confirmed design (this function only
-    reads state["red_flag_candidates"], the LIST check_red_flags already
-    filtered to not-yet-rejected candidates — no rejection logic lives
-    here).
-    """
     if state.get("red_flags"):
         return "emergency_node"
     if state.get("thread_outcome") is not None:
@@ -136,33 +85,13 @@ def _route_after_check_red_flags(state: HealixState) -> str:
 
 
 def _route_after_verify_red_flag(state: HealixState) -> str:
-    """verify_red_flag -> ask_followup if it set a clarification question
-    this turn, else -> assess_sufficiency (the shared follow-up budget was
-    already spent, or no candidate was actually there to ask about).
-
-    Reuses ask_followup (nodes/ask_followup.py), not a new terminal node —
-    the same reuse rag_retrieve's own sex-clarification question already
-    makes of ask_followup: that node's contract (send
-    state["next_question"], end the turn, await the next invoke() on this
-    thread_id) has no coupling to which upstream node set the question.
+    """verify_red_flag -> ask_followup if it set next_question, else on to assess_sufficiency.
     """
     return "ask_followup" if state.get("next_question") else "assess_sufficiency"
 
 
 def _route_after_assess_sufficiency(state: HealixState) -> str:
-    """assess_sufficiency -> ask_followup if more information is needed,
-    else on to rag_retrieve.
-
-    Checks is_sufficient against True/False explicitly, not truthiness —
-    unlike the two routing functions above, "field absent, default to the
-    continue-forward branch" here would mean defaulting into rag_retrieve
-    -> diagnose, which now does real work (a real LLM call in diagnose)
-    for a state that never actually went through assess_sufficiency's own
-    judgment, not just a harmless no-op the way the old END placeholder
-    was. END is deliberately still the fallback for that unreached-state
-    case — not expected in practice (assess_sufficiency always sets
-    is_sufficient), but kept explicit rather than silently doing
-    diagnostic work on an unjudged state.
+    """assess_sufficiency -> ask_followup if it set next_question, else on to rag_retrieve.
     """
     if state.get("is_sufficient") is False:
         return "ask_followup"
@@ -172,110 +101,13 @@ def _route_after_assess_sufficiency(state: HealixState) -> str:
 
 
 def _route_after_rag_retrieve(state: HealixState) -> str:
-    """rag_retrieve -> ask_followup if it needs patient_sex confirmed
-    before a sex-restricted candidate can be safely included, else on to
-    ml_corroborate.
-
-    rag_retrieve only ever sets state["next_question"] itself when it hit
-    this ambiguity (nodes/rag_retrieve.py's module docstring, "Sex-specific
-    gating") — assess_sufficiency already reset it to None this same turn
-    when it decided is_sufficient=True (state.py's own field comment), so
-    a truthy value here unambiguously means rag_retrieve just set one,
-    not a stale value from earlier in the turn or an earlier turn.
-
-    Routes to ml_corroborate, not straight to diagnose: a turn that's
-    only asking a sex-clarification question has no finished candidate
-    set yet, so there is nothing useful for the ML corroboration signal
-    (CLAUDE.md's XGBoost corroboration-signal section) to annotate this
-    turn — ml_corroborate always runs immediately before diagnose from
-    here on, never on the ask_followup branch.
+    """rag_retrieve -> ask_followup if it set next_question, else on to ml_corroborate.
     """
     return "ask_followup" if state.get("next_question") else "ml_corroborate"
 
 
 def build_graph(checkpointer: BaseCheckpointSaver) -> CompiledStateGraph:
-    """Assemble the graph:
-
-        START -> reset_stage -> crisis_check -> crisis_node -> END
-                                             \\-> extract_symptoms -> check_red_flags -> emergency_node -> END
-                                                                                      \\-> reiterate_terminal_outcome -> END
-                                                                                      \\-> verify_red_flag -> ask_followup -> END
-                                                                                                          \\-> assess_sufficiency -> ask_followup -> END
-                                                                                      \\-> assess_sufficiency -> ask_followup -> END
-                                                                                                              \\-> rag_retrieve -> ask_followup -> END
-                                                                                                                                \\-> ml_corroborate -> diagnose -> route_specialty -> generate_reports -> END
-
-    verify_red_flag (nodes/verify_red_flag.py) is the newest addition —
-    _route_after_check_red_flags sends a turn here instead of straight to
-    emergency_node when check_red_flags found only an unresolved CANDIDATE
-    (a cited rule's core symptom present, its discriminators not yet
-    confirmed or denied), never on a hard rule match. It asks one targeted
-    question and, like rag_retrieve's own sex-clarification branch, routes
-    into the SAME ask_followup node the assess_sufficiency loop already
-    uses — no second follow-up mechanism. Resolution (confirmed ->
-    emergency_node via a real rule match, or rejected -> falls out of
-    red_flag_candidates) happens naturally on a LATER turn when
-    check_red_flags re-runs against the newly accumulated state; see
-    nodes/check_red_flags.py's and nodes/verify_red_flag.py's own module
-    docstrings for the full design this replaces (`if rule or llm:
-    emergency`).
-
-    reset_stage runs first, unconditionally, on every turn — it clears
-    state["stage"] before any node this turn could set one (CLAUDE.md >
-    State: stage has no reducer, so without this a previous turn's value
-    would otherwise leak into a turn that doesn't reach a stage-setting
-    node of its own). It deliberately does NOT clear state["thread_outcome"]
-    (CLAUDE.md > Non-negotiable safety rule 13) — see nodes/reset_stage.py's
-    own docstring for why the two fields need opposite per-turn lifetimes.
-
-    crisis_node and emergency_node both always end the turn (CLAUDE.md >
-    Non-negotiable safety rule 4: both paths bypass RAG and diagnosis
-    entirely, so there is nowhere else for either to route to) — and both
-    also set state["thread_outcome"] to their own value, unconditionally,
-    every time they fire (CLAUDE.md > Non-negotiable safety rule 13). A
-    later turn on the same thread that escalates neither a fresh crisis
-    signal nor a new red flag is routed by _route_after_check_red_flags
-    to reiterate_terminal_outcome instead of assess_sufficiency — a fixed,
-    non-LLM reminder of the standing directive, not a fresh run through
-    normal symptom triage. ask_followup always ends the turn too —
-    CLAUDE.md > Graph flow: it awaits the patient's next message, which
-    arrives as a fresh invoke() on the same thread_id (CLAUDE.md > State:
-    persistence is the checkpointer, keyed by thread_id).
-
-    rag_retrieve -> ml_corroborate is the ONE conditional edge in this
-    branch, added for sex-specific KB gating (nodes/rag_retrieve.py's
-    module docstring, "Sex-specific gating"): when a sex-restricted
-    candidate would otherwise qualify but state["patient_sex"] is
-    unconfirmed, rag_retrieve sets state["next_question"] itself and
-    _route_after_rag_retrieve sends the turn to the SAME ask_followup
-    node the assess_sufficiency <-> ask_followup loop already uses, not a
-    new one — reusing ask_followup's existing contract (send
-    next_question, end the turn, await the next invoke() on this
-    thread_id) rather than inventing a second follow-up mechanism.
-    Otherwise unconditional from there: ml_corroborate -> diagnose ->
-    route_specialty -> generate_reports. ml_corroborate (CLAUDE.md's
-    XGBoost corroboration-signal section) only ever annotates entries
-    already in state["candidate_diseases"] with an optional
-    ml_corroboration field, or leaves the list completely untouched on
-    any error (fail-open, non-critical path) — it never blocks or alters
-    what reaches diagnose. diagnose already handles an empty
-    state["candidate_diseases"] itself (short-circuits to
-    insufficient_information, no LLM call — CLAUDE.md > Non-negotiable
-    safety rule 6), route_specialty likewise already handles an
-    insufficient_information diagnosis itself (falls back to
-    GENERAL_PRACTICE, no LLM call), and generate_reports likewise
-    produces an honest "couldn't determine" pair of reports for that same
-    status rather than needing a routing decision here. generate_reports
-    is this path's real terminal node, routed to END: it is the node that
-    actually sets state["stage"] = "diagnosis" (CLAUDE.md > State — the
-    field neither diagnose nor route_specialty touches) and appends this
-    turn's assistant-facing reply to state["messages"], the same
-    contract every other terminal node (crisis_node, emergency_node,
-    ask_followup) already fulfills.
-
-    Takes the checkpointer rather than constructing one, so callers (and
-    tests) control its lifetime explicitly instead of this function
-    reaching into the environment on their behalf.
+    """Assemble the graph of nodes and edges, then compile it into a `CompiledStateGraph` object.
     """
     builder = StateGraph(HealixState)
     builder.add_node("reset_stage", reset_stage)

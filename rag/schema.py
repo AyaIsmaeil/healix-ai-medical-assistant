@@ -1,19 +1,3 @@
-"""KnowledgeBaseEntry: the schema for rag/knowledge_base/*.json.
-
-One file per disease (mirrors nodes/ being one file per node). Each file
-is loaded and validated against KnowledgeBaseEntry below — malformed
-entries fail loudly at load time rather than reaching rag_retrieve/diagnose
-with a silently wrong shape.
-
-symptoms is deliberately NOT constrained to vocabulary/symptoms.py's
-enum, unlike schemas/symptoms.py's ExtractedSymptom.name. That enum
-exists to stop an LLM from free-generating a name at extraction time;
-this is reference data going the other direction — the whole point of
-rag/coverage.py is to audit which of these strings the vocabulary is
-still missing, which requires being able to store one that isn't in it
-yet. See CLAUDE.md > Symptom vocabulary and rag/coverage.py.
-"""
-
 from __future__ import annotations
 
 import json

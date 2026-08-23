@@ -4,5 +4,5 @@ from state import merge_symptoms
 
 p = build_prompt("_safety_preamble")
 print(len(p))
-print("تشخيص" in p)     # True = الملف انقرأ صح
+print("تشخيص" in p)   
 print("الأزمة" in p)

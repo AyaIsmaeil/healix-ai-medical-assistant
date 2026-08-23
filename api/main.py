@@ -1,57 +1,3 @@
-"""api/main.py — the real Laravel-facing HTTP boundary, plus a local dev
-chat UI for manual testing served from the same process.
-
-CLAUDE.md > Laravel <-> service contract: api/contracts.py's ChatRequest/
-ChatResponse are reused here unchanged — this file only wires them to a
-real route, it does not redefine or narrow either shape.
-
-POST /chat is the real route: it is what Laravel calls, gated on the
-shared-secret header CLAUDE.md > Architecture describes ("This service
-is not internet-facing. Internal network + shared secret in header.").
-GET / (the dev chat page, api/static/index.html) also calls this SAME
-route rather than a separate unauthenticated one — deliberately: a
-second, parallel "dev-only" implementation of /chat would drift from
-what Laravel actually experiences, and testing the real, authenticated
-route IS the point of a manual-testing tool, not a reason to bypass it.
-The dev page still works: see _inject_dev_token() below for how it gets
-the shared secret without hardcoding it into the static file.
-
-GET /health is deliberately the one unauthenticated route — a basic
-liveness check Laravel's own client can call to confirm this service is
-up at all, before it matters whether the caller has the shared secret
-right. (No LabClient.php was present in this repository to check its
-exact expected shape against — Laravel is a separate codebase. This
-returns the smallest, most conventional shape, {"status": "ok"}; flagged
-here in case Laravel's actual client expects something more specific.)
-
-POST /speech/transcribe and POST /speech/synthesize are speech I/O only —
-neither invokes the graph. speech_client.py (this project's single entry
-point for speech, kept separate the same way llm_client.py stays separate
-from nodes/) does the actual work; these routes just apply the same
-auth gate POST /chat uses and shape the HTTP boundary around it. A voice
-turn is therefore always two calls from a caller's point of view:
-POST /speech/transcribe to get text, then POST /chat with that text —
-never a single combined "voice chat" endpoint.
-
-Run it (CLAUDE.md > Running locally — read that section before changing
-this command; the port is pinned deliberately, not a stylistic choice):
-
-    uvicorn api.main:app --reload --port 8004
-
-— or `run.bat` / `run.sh`, which run this exact command. Do not omit
---port 8004: Laravel's config/services.php hardcodes
-http://127.0.0.1:8004 as services.healix.url's default, and a real
-integration bug already shipped from this service coming up on
-whatever port uvicorn's bare default happened to be instead — see
-CLAUDE.md > Running locally for the full incident.
-
-Then open http://127.0.0.1:8004/ for the dev chat page, or POST to
-/chat directly (with the header) to exercise the real route. Needs the
-same .env configuration as every other real-LLM entry point in this
-project (HEALIX_LLM_PROVIDER_*/HEALIX_MODEL_*/API keys — see
-.env.example) plus HEALIX_INTERNAL_TOKEN (new — see below).
-"""
-
 from __future__ import annotations
 
 import hmac
@@ -61,33 +7,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
-# Must run before ANY import that could transitively load ml/'s XGBoost
-# stack (numpy/scikit-learn/xgboost) or speech_client.py's Whisper stack
-# (faster-whisper/ctranslate2) — both bundle their own private OpenMP
-# runtime, and this process is the one place both can end up loaded
-# together (nodes/ml_corroborate.py and the /speech/* routes below).
-# Reproduced directly during this feature's integration: whichever one
-# initializes ITS OpenMP runtime first in a given process works fine;
-# whichever loads second crashes the whole process with "OMP: Error #15:
-# Initializing libiomp5md.dll, but found libiomp5md.dll already
-# initialized" — not a Python exception either lazy-load's own try/except
-# can catch, since it aborts the process before either speech_client.py's
-# SpeechError or ml/model_loader.py's MLModelError has a chance to run.
-# Real risk, not hypothetical: neither library is loaded eagerly at
-# import time (both lazy-load on first real use, deliberately, to avoid
-# paying their startup cost for callers who never need them) — so which
-# one loads "first" depends purely on which kind of request a given
-# process happens to receive first, e.g. a voice message reaching
-# POST /speech/transcribe before any turn has ever reached
-# nodes/ml_corroborate.py in that process's lifetime. This env var is the
-# documented, standard workaround (also suggested by the OMP error
-# message itself); the residual risk it accepts (two OpenMP thread pools
-# coexisting without coordination) does not touch either library's
-# correctness here — xgboost's predict_proba() and Whisper's transcription
-# never run inside the same thread at the same instant in this codebase's
-# request flow, and nodes/ml_corroborate.py's own signal is gated on
-# argmax agreement, not a numeric value sensitive to floating-point
-# thread-scheduling variance.
+
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 
 from dotenv import load_dotenv
@@ -209,14 +129,7 @@ def _latest_assistant_reply(messages: list[dict[str, str]]) -> str:
 
 @app.post("/chat", response_model=ChatResponse, dependencies=[Depends(require_internal_token)])
 def chat(request: ChatRequest, graph: CompiledStateGraph = Depends(get_graph)) -> ChatResponse:
-    """One turn: invoke the real compiled graph, shape the result as ChatResponse.
-
-    thread_id is passed on every call, not just a detected "first" one —
-    harmless on later turns (last-value-wins on a field with no reducer,
-    state.py), and means this endpoint doesn't need to track per-thread
-    turn number itself; the checkpointer (keyed by thread_id, CLAUDE.md >
-    State) is what actually remembers everything before this turn.
-
+    """
     ChatRequest normalizes conversation_id and thread_id to the same
     string (one conversation = one LangGraph thread). This service does
     not mint that id and does not treat reset_stage as a new conversation.
@@ -230,20 +143,7 @@ def chat(request: ChatRequest, graph: CompiledStateGraph = Depends(get_graph)) -
             {
                 "thread_id": thread_id,
                 "messages": [{"role": "user", "content": request.message}],
-                # Every node reads this via state.get("medical_record_summary",
-                # "") — that default only kicks in when the KEY is absent,
-                # not when it's present with value None. ChatRequest's own
-                # field defaults to None when the caller omits it
-                # (api/contracts.py), so forwarding it unchanged would plant
-                # an explicit None into state and break the first node that
-                # calls rules.crisis.normalize() on it (rules/red_flags.py's
-                # mentions_chronic_condition).
                 "medical_record_summary": request.medical_record_summary or "",
-                # No equivalent None-vs-absent hazard here: every reader
-                # (nodes/rag_retrieve.py) uses state.get("patient_sex")
-                # with no default, so an absent key and an explicit None
-                # already produce the identical None either way — verified
-                # against that node's own code before assuming so.
                 "patient_sex": request.patient_sex,
             },
             config=config,
@@ -257,20 +157,6 @@ def chat(request: ChatRequest, graph: CompiledStateGraph = Depends(get_graph)) -
 
     stage = result["stage"]
     red_flags: list[dict[str, Any]] = result.get("red_flags") or []
-
-    # diagnosis/specialty/reports are gated on stage == "diagnosis" exactly,
-    # matching CLAUDE.md > Laravel <-> service contract's documented
-    # ChatResponse shape verbatim ("populated only when stage ==
-    # 'diagnosis'"). None of the three fields has a reducer (state.py), so
-    # once a thread has ever gone through a real diagnosis turn they persist
-    # in the checkpointed state indefinitely — a LATER turn that doesn't
-    # reach diagnose/route_specialty/generate_reports again (an emergency,
-    # a crisis, or a followup) would otherwise silently carry that stale
-    # differential forward in the response. Observed for real: a live
-    # emergency-stage request returned the previous turn's Migraine
-    # differential and specialty alongside the "go to the ER now" reply,
-    # before this gate existed. See
-    # test_emergency_stage_response_does_not_carry_a_stale_diagnosis_from_an_earlier_turn.
     is_diagnosis_stage = stage == "diagnosis"
 
     return ChatResponse(
@@ -280,18 +166,8 @@ def chat(request: ChatRequest, graph: CompiledStateGraph = Depends(get_graph)) -
         stage=stage,
         is_crisis=stage == "crisis",
         severity=result.get("severity"),
-        # ChatResponse.red_flags is list[str] (api/contracts.py) — ids
-        # only. "reason" is doctor-facing (state.py's own field comment:
-        # explaining why reads as a clinical explanation bordering on
-        # diagnosis, safety rule 1) and belongs in reports["doctor"]
-        # instead, not duplicated onto this summary field.
         red_flags=[flag["id"] for flag in red_flags],
         diagnosis=result.get("diagnosis") if is_diagnosis_stage else None,
-        # specialty_laravel, not the bare "specialty" state field: the KB's
-        # own specialty strings don't match Laravel's real specializations
-        # table (nodes/route_specialty.py's own docstring, CLAUDE.md > Known
-        # limitations) — specialty_laravel is the SPECIALTY_MAP-translated
-        # value a future doctor-matching lookup would actually need.
         specialty=result.get("specialty_laravel") if is_diagnosis_stage else None,
         reports=result.get("reports") if is_diagnosis_stage else None,
     )
@@ -304,10 +180,6 @@ def chat(request: ChatRequest, graph: CompiledStateGraph = Depends(get_graph)) -
 )
 def health_questions(request: HealthQuestionRequest) -> HealthQuestionResponse:
     """General health-education Q&A — a separate feature from POST /chat
-    (CLAUDE.md-equivalent: docs/AHD_DATA_PROVENANCE.md). Shares no graph
-    state with /chat; a failure here cannot affect it. See
-    rag/health_education/service.py for the safety-gate + retrieval +
-    LLM-summary pipeline this wraps.
     """
     try:
         return answer_health_question(request.question, thread_id=request.thread_id)
@@ -329,16 +201,7 @@ def health_questions(request: HealthQuestionRequest) -> HealthQuestionResponse:
     dependencies=[Depends(require_internal_token)],
 )
 def speech_transcribe(file: UploadFile = File(...)) -> SpeechTranscribeResponse:
-    """Speech-to-text only — does not itself invoke the graph. The
-    caller sends the returned text through POST /chat as an ordinary
-    turn afterward (speech_client.py's module docstring: this module is
-    the single entry point for speech I/O, kept separate from the graph
-    the same way llm_client.py stays separate from nodes/).
-
-    Plain `def`, not `async def`, same as POST /chat above —
-    speech_client.transcribe() is a blocking call (faster-whisper has no
-    async API), so FastAPI runs this route in its threadpool rather than
-    blocking the event loop.
+    """Speech-to-text only — does not itself invoke the graph.
     """
     audio_bytes = file.file.read()
     try:
@@ -368,26 +231,10 @@ async def speech_synthesize(payload: SpeechSynthesizeRequest) -> Response:
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    """Unauthenticated liveness check. See module docstring — this
-    service's own POST /health/GET /health expectations on the Laravel
-    side (LabClient) could not be verified against source, since that
-    file lives in the separate Laravel codebase, not here. This is the
-    smallest conventional shape; adjust if Laravel's real client expects
-    something else."""
     return {"status": "ok"}
 
 
 def _inject_dev_token(html: str) -> str:
-    """Splice the real shared-secret token into the dev chat page's own
-    JS so its fetch("/chat", ...) calls succeed against the now-
-    authenticated route, without ever hardcoding a secret into the
-    static file itself (api/static/index.html has no real value in it —
-    only the placeholder below, safe to commit).
-
-    This is the one deliberate, minimal edit the dev page needed to keep
-    working once /chat stopped being unauthenticated — everything else
-    about it (UI, RTL handling, banner) is untouched.
-    """
     token = os.getenv(_INTERNAL_TOKEN_ENV_VAR, "").strip()
     return html.replace("__HEALIX_INTERNAL_TOKEN__", token)
 

@@ -1,33 +1,3 @@
-"""MANUAL VERIFICATION SCRIPT — MAKES ONE REAL, BILLABLE GEMINI API CALL.
-
-*** This is NOT part of the pytest suite and must never be added to it. ***
-Run it by hand, deliberately:
-
-    python scripts/verify_gemini_enum.py            # asks for confirmation
-    python scripts/verify_gemini_enum.py --yes      # skips the prompt
-
-What it answers, none of which a mocked test can:
-
-  1. Does the provider ACCEPT a schema with an enum this large? Providers
-     impose schema/enum size limits that are not documented per-field and
-     only appear as the vocabulary grows toward its full 52 entries.
-  2. Do non-Latin (Arabic) enum values survive the round trip, or does
-     something along the way mangle, transliterate, or escape them?
-  3. Does the returned value match a vocabulary entry BYTE FOR BYTE?
-     A visually identical string that differs by one codepoint — a hamza
-     form, a normalization form — parses as a valid enum member only if it
-     is byte-identical, and would otherwise fail validation. Downstream,
-     exact-string matching in rules/red_flags.py depends on this.
-
-Requires GEMINI_API_KEY, HEALIX_LLM_PROVIDER_FAST=gemini, and
-HEALIX_MODEL_FAST in the environment (.env).
-
-See scripts/verify_groq_enum.py for the same check against Groq — a
-separate script, not a flag on this one, because the two providers'
-structured-output support differs enough (Groq's is model-gated) to want
-their own framing rather than a shared --provider switch.
-"""
-
 from __future__ import annotations
 
 import json

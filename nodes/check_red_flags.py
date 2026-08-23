@@ -1,26 +1,3 @@
-"""check_red_flags: explicit candidate/confirmed red-flag disposition.
-
-Four layers, not an implicit `if rule or llm: emergency`:
-
-  1. Deterministic hard match (rules.red_flags.check_red_flags) — the
-     only source of state["red_flags"]. Never weakened by the LLM.
-  2. Deterministic candidate (find_incomplete_combination_candidates) —
-     a cited rule's core symptom present, discriminators still unknown.
-     Routes to verify_red_flag, never straight to emergency.
-  3. LLM screen (RedFlagAssessment.potential_red_flag) — surfaces a
-     concern the rule engine can't see (unmatched_mentions). Audit-logged
-     only; never creates a red flag or candidate on its own (no cited
-     rule to source a verification question from — see
-     schemas/red_flags.py).
-  4. safety_decision: HARD_EMERGENCY | NEEDS_CLARIFICATION | NO_RED_FLAG
-     — what graph.py's routing actually reads.
-
-negated_symptoms now reaches both deterministic functions (previously
-missing — a symptom retracted on a later turn could still count as
-present, since state["symptoms"] only grows).
-
-api.contracts.ChatResponse.red_flags is unaffected: still confirmed-only.
-"""
 
 from __future__ import annotations
 

@@ -44,6 +44,14 @@ LARAVEL_SPECIALTIES: frozenset[str] = frozenset(
         "الطب النفسي",  # Psychiatry
         "أمراض النساء والولادة",  # Gynecology
         "المسالك البولية",  # Urology
+        "طب عام",  # General Practice
+        "انف وأذن وحنجرة",  # ENT
+        "امراض الصدر والجهاز التنفسي",  # Pulmonology
+        "طب الغدد الصماء",  # Endocrinology
+        "امراض النساء والتوليد",  # Obstetrics
+        "طب العيون",  # Ophthalmology (duplicate, but included in the original list)""
+        "الطب النفسي",  # Psychiatry (duplicate, but included in the original list)
+
     }
 )
 
@@ -70,6 +78,13 @@ SPECIALTY_MAP: dict[str, str] = {
     "علاج طبيعي": "جراحة العظام",
     "دموية": "أمراض القلب",
     "حساسية": "الأمراض الجلدية",
+    "طب عام": "طب عام",
+    "انف وأذن وحنجرة": "انف وأذن وحنجرة",
+    "امراض الصدر والجهاز التنفسي": "امراض الصدر والجهاز التنفسي",
+    "طب الغدد الصماء": "طب الغدد الصماء",
+    "امراض النساء والتوليد": "امراض النساء والتوليد",
+    "طب العيون": "طب العيون",
+    "الطب النفسي": "الطب النفسي",
 }
 
 assert set(SPECIALTY_MAP.values()) <= LARAVEL_SPECIALTIES, (

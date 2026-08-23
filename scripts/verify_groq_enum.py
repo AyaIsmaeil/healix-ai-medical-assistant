@@ -1,35 +1,4 @@
-"""MANUAL VERIFICATION SCRIPT — MAKES ONE REAL, BILLABLE GROQ API CALL.
-
-*** This is NOT part of the pytest suite and must never be added to it. ***
-Run it by hand, deliberately:
-
-    python scripts/verify_groq_enum.py                      # gpt-oss-20b, asks for confirmation
-    python scripts/verify_groq_enum.py --yes                 # skips the prompt
-    python scripts/verify_groq_enum.py --model openai/gpt-oss-120b --yes
-
-Companion to scripts/verify_gemini_enum.py — same three questions, same
-checklist, against Groq instead:
-
-  1. Does the provider ACCEPT a schema with an enum this large?
-  2. Do non-Latin (Arabic) enum values survive the round trip?
-  3. Does the returned value match a vocabulary entry BYTE FOR BYTE?
-
-*** Why this is a SEPARATE script, not a --provider flag on the Gemini
-one: Groq's structured-output support is NOT provider-wide. As of this
-writing, native JSON Schema enforcement (response_format: json_schema,
-strict: true) is documented as supported only on openai/gpt-oss-20b and
-openai/gpt-oss-120b — see llm_client._GROQ_STRICT_SCHEMA_MODELS and
-https://console.groq.com/docs/structured-outputs. Every other Groq model
-either has no schema enforcement or best-effort-only, which is exactly
-the kind of silent downgrade this project refuses to build around. A
-PASS here is a claim about these two specific models, not about "Groq."
-
-This script forces the "fast" tier to groq / the chosen model for its own
-process only (HEALIX_LLM_PROVIDER_FAST / HEALIX_MODEL_FAST are set in
-os.environ after load_dotenv(), never written to .env) — so it verifies
-the same two models regardless of whatever your .env currently has each
-tier pointed at.
-
+"""Verify Groq strict schema support for enum output
 Requires GROQ_API_KEY in the environment (.env). See
 https://console.groq.com/keys.
 """
