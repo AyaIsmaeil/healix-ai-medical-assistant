@@ -47,7 +47,14 @@ def _isolate_llm_env(monkeypatch):
 
 
 def _candidate(
-    name, match_score, matched=(), missing=(), negated=(), specialties=("طب عام",), name_ar=None
+    name,
+    match_score,
+    matched=(),
+    missing=(),
+    negated=(),
+    specialties=("طب عام",),
+    name_ar=None,
+    source="Test Source",
 ):
     return {
         "name": name,
@@ -57,6 +64,7 @@ def _candidate(
         "missing_symptoms": list(missing),
         "negated_symptoms": list(negated),
         "specialties": list(specialties),
+        "source": source,
     }
 
 
@@ -111,6 +119,7 @@ def test_a_clear_top_candidate_produces_a_ranked_differential():
                     "missing_symptoms": [],
                     "negated_symptoms": [],
                     "specialties": ["طب عام"],
+                    "source": "Test Source",
                 },
                 {
                     "name": "Streptococcal Pharyngitis",
@@ -121,6 +130,7 @@ def test_a_clear_top_candidate_produces_a_ranked_differential():
                     "missing_symptoms": ["التهاب حلق"],
                     "negated_symptoms": [],
                     "specialties": ["أنف وأذن وحنجرة", "طب عام"],
+                    "source": "Test Source",
                 },
             ],
             "reasoning": "اعراض متوافقة",
@@ -201,6 +211,25 @@ def test_ml_corroboration_never_reaches_the_llm_prompt():
 
     assert "ml_corroboration" not in provider.calls[0]["prompt"]
     assert "model_signal_present" not in provider.calls[0]["prompt"]
+
+
+def test_source_is_carried_through_but_never_reaches_the_llm_prompt():
+    candidate = _candidate(
+        "Asthma",
+        1.0,
+        matched=["ضيق تنفس"],
+        source="GINA — Global Strategy for Asthma Management",
+    )
+    provider = FakeProvider(responses=[_diagnosis_response("differential", differential=["Asthma"])])
+    set_provider(provider)
+
+    result = diagnose(_state(candidate_diseases=[candidate]))
+
+    assert result["diagnosis"]["differential"][0]["source"] == (
+        "GINA — Global Strategy for Asthma Management"
+    )
+    assert "GINA" not in provider.calls[0]["prompt"]
+    assert "source" not in provider.calls[0]["prompt"]
 
 
 # --- empty candidate list: insufficient_information, no LLM call ---------------

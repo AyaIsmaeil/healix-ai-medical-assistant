@@ -4,7 +4,7 @@
   "symptoms": ["ألم أسفل البطن", "ألم أسفل الظهر", "غثيان"],
   "specialties": ["نسائية"],
   "applicable_sex": "female",
-  "source": "ACOG — Dysmenorrhea",
+  "source": "ACOG — Dysmenorrhea — https://www.acog.org/womens-health/faqs/dysmenorrhea-painful-periods",
   "note": "Pain is characteristically cyclical, tied to menstruation.",
   "translation_reviewed": true
 }

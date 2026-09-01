@@ -3,7 +3,7 @@
   "name_ar": "قرحة المعدة",
   "symptoms": ["ألم أعلى البطن", "انتفاخ", "غثيان", "فقدان شهية"],
   "specialties": ["هضمية"],
-  "source": "NICE CKS: Dyspepsia - proven peptic ulcer",
+  "source": "NICE CKS: Dyspepsia - proven peptic ulcer — https://cks.nice.org.uk/topics/dyspepsia-proven-peptic-ulcer/",
   "note": "Gastric ulcer pain often worsens shortly after eating, while duodenal ulcer pain classically improves with food and recurs a few hours later.",
   "translation_reviewed": true
 }

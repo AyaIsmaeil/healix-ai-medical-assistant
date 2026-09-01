@@ -38,6 +38,7 @@ def _differential_entry(
     specialties=("طب عام",),
     name_ar=None,
     ml_corroboration=None,
+    source=None,
 ):
     entry = {
         "name": name,
@@ -55,6 +56,8 @@ def _differential_entry(
     }
     if ml_corroboration is not None:
         entry["ml_corroboration"] = ml_corroboration
+    if source is not None:
+        entry["source"] = source
     return entry
 
 
@@ -381,6 +384,54 @@ def test_patient_report_never_contains_any_ml_corroboration_trace_even_when_abse
     patient = result["reports"]["patient"]
     for trace in ("ml_corroboration", "XGBoost", "model_signal_present"):
         assert trace not in patient
+
+
+# --- source: doctor-only, verbatim from the KB, never patient-facing ------------
+
+
+def test_source_line_appears_in_doctor_report_when_present():
+    diagnosis = _diagnosis(
+        differential=[
+            _differential_entry(
+                "Asthma",
+                name_ar="الربو",
+                source="GINA — Global Strategy for Asthma Management",
+            )
+        ]
+    )
+
+    result = generate_reports(_state(diagnosis=diagnosis))
+
+    assert "المصدر:" in result["reports"]["doctor"]
+    assert "GINA — Global Strategy for Asthma Management" in result["reports"]["doctor"]
+
+
+def test_source_never_leaks_into_the_patient_report():
+    diagnosis = _diagnosis(
+        differential=[
+            _differential_entry(
+                "Asthma",
+                name_ar="الربو",
+                source="GINA — Global Strategy for Asthma Management",
+            )
+        ]
+    )
+
+    result = generate_reports(_state(diagnosis=diagnosis))
+
+    patient = result["reports"]["patient"]
+    assert "GINA" not in patient
+    assert "المصدر" not in patient
+
+
+def test_no_source_line_when_field_absent():
+    diagnosis = _diagnosis(differential=[_differential_entry("Asthma", name_ar="الربو")])
+
+    result = generate_reports(_state(diagnosis=diagnosis))
+
+    # .get('source') falls back to the same placeholder every other
+    # missing doctor-report field uses — never a KeyError, never a blank line.
+    assert "المصدر: لا يوجد" in result["reports"]["doctor"]
 
 
 # --- reasoning trail: reconstructed from state["messages"], no new tracking ------

@@ -3,7 +3,7 @@
   "name_ar": "الحصبة الألمانية",
   "symptoms": ["حمى خفيفة", "طفح جلدي", "تورم غدد خلف الأذن", "ألم مفاصل"],
   "specialties": ["طب عام", "أطفال"],
-  "source": "CDC: Rubella (German Measles)",
+  "source": "CDC: Rubella (German Measles) — https://www.cdc.gov/rubella/about/index.html",
   "note": "Distinguished from Measles in this knowledge base by a milder fever, a shorter-duration and less confluent rash, and prominent posterior-auricular lymphadenopathy; joint pain is more common in adult (especially female) patients.",
   "translation_reviewed": true
 }

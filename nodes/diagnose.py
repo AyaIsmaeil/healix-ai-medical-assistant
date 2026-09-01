@@ -96,6 +96,10 @@ def diagnose(state: HealixState) -> dict[str, Any]:
             "missing_symptoms": by_name[name]["missing_symptoms"],
             "negated_symptoms": by_name[name]["negated_symptoms"],
             "specialties": by_name[name]["specialties"],
+            # Carried through unchanged; never shown to the LLM (see
+            # rag_retrieve.py's own comment) — generate_reports.py's doctor
+            # register is the only consumer.
+            "source": by_name[name]["source"],
             # Carried through unchanged when ml_corroborate set it; never shown to the LLM.
             **(
                 {"ml_corroboration": by_name[name]["ml_corroboration"]}

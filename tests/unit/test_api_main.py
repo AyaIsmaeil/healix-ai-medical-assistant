@@ -21,7 +21,7 @@ from fastapi.testclient import TestClient
 import api.main as api_main
 import llm_client
 from llm_client import LLMUnavailable, _ProviderResponse, set_provider
-from nodes.route_specialty import GENERAL_REFERRAL_PHRASE
+from nodes.route_specialty import GENERAL_PRACTICE, GENERAL_REFERRAL_PHRASE
 
 TOKEN = "test-internal-token-abc123"
 AUTH_HEADERS = {"X-Healix-Internal-Token": TOKEN}
@@ -323,10 +323,12 @@ def test_real_end_to_end_chat_round_trip_through_the_authenticated_route():
     assert body["thread_id"] == "real-e2e-thread"
     assert body["stage"] == "diagnosis"
     assert body["is_crisis"] is False
-    # insufficient_information -> GENERAL_PRACTICE clinically -> the
-    # referral phrase Laravel-facing (GENERAL_PRACTICE has no real
-    # Laravel specialty — nodes/route_specialty.py's own docstring).
-    assert body["specialty"] == GENERAL_REFERRAL_PHRASE
+    # insufficient_information -> GENERAL_PRACTICE clinically -> Laravel's
+    # real "General Medicine" row now (nodes/route_specialty.py's
+    # SPECIALTY_MAP — GENERAL_PRACTICE resolves to a real bookable
+    # doctor since that Laravel specialty was added, not just a referral
+    # phrase).
+    assert body["specialty"] == GENERAL_PRACTICE
     assert body["reply"]
     assert body["reports"]["patient"]
     assert body["reports"]["doctor"]

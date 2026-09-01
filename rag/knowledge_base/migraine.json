@@ -3,7 +3,7 @@
   "name_ar": "الشقيقة",
   "symptoms": ["صداع نابض من جهة واحدة", "غثيان", "حساسية للضوء", "حساسية للصوت"],
   "specialties": ["عصبية"],
-  "source": "International Headache Society, ICHD-3",
+  "source": "International Headache Society, ICHD-3 — https://ihs-headache.org/en/resources/ichd/",
   "note": "Unilateral pulsing quality clinically distinguishes it from tension headache (bilateral pressing).",
   "translation_reviewed": true
 }
