@@ -1,39 +1,3 @@
-"""VERIFICATION SCRIPT — calls a REAL LOCAL Ollama server. Free, no quota,
-but requires Ollama running with the target model already pulled
-(`ollama pull qwen3:4b`).
-
-Run it by hand:
-
-    python scripts/verify_ollama_enum.py                        # qwen3:4b
-    python scripts/verify_ollama_enum.py --model llama3.2:3b
-
-Companion to scripts/verify_gemini_enum.py and scripts/verify_groq_enum.py
-— same three questions, same checklist, against a local model instead:
-
-  1. Does the provider ACCEPT a schema with an enum this large?
-  2. Do non-Latin (Arabic) enum values survive the round trip?
-  3. Does the returned value match a vocabulary entry BYTE FOR BYTE?
-
-No --yes confirmation gate here, unlike the cloud scripts: this makes no
-billable call and consumes no quota, so there is nothing to confirm
-before spending. It still prints timing for every run, because that is
-the open question for this provider specifically — see
-llm_client._OllamaProvider's module-level note and .env.example for the
-measured cold-start numbers this script's own runs can be compared
-against.
-
-Ollama's structured-output support is NOT model-gated the way Groq's is
-(see llm_client._OllamaProvider: the JSON Schema grammar is enforced by
-llama.cpp beneath the model, not by the model itself), so unlike
-verify_groq_enum.py this script has no allow-list to restrict --model to
-— any model your local Ollama has pulled is fair game.
-
-Requires OLLAMA_BASE_URL in the environment (.env) — or, since this
-script is for a quick local check rather than production config, falls
-back to Ollama's standard local default if unset, rather than requiring
-it strictly the way llm_client.py's production path does.
-"""
-
 from __future__ import annotations
 
 import argparse

@@ -3,7 +3,7 @@
   "name_ar": "التهاب الحلق البكتيري",
   "symptoms": ["ألم حلق شديد ومفاجئ", "حمى", "صعوبة بلع", "تورم غدد الرقبة"],
   "specialties": ["أنف وأذن وحنجرة", "طب عام"],
-  "source": "CDC — Group A Streptococcal Pharyngitis",
+  "source": "CDC — Group A Streptococcal Pharyngitis — https://www.cdc.gov/group-a-strep/hcp/clinical-guidance/strep-throat.html",
   "note": "Absence of cough is clinically distinguishing from viral pharyngitis.",
   "translation_reviewed": true
 }

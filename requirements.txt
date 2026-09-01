@@ -35,7 +35,7 @@ edge-tts>=7.0
 # close mismatch with a warning) but is worth keeping exact so that
 # warning never has to be reasoned about.
 joblib==1.5.3
-numpy==1.26.4
+numpy
 scikit-learn==1.5.2
 xgboost==2.1.4
 

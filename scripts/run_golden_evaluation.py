@@ -1,81 +1,4 @@
-"""scripts/run_golden_evaluation.py — measured evaluation of the real
-compiled graph (graph.build_graph()) against tests/golden/cases.json.
-
-Distinct from tests/unit and tests/integration (CLAUDE.md > Project
-layout: tests/golden/ holds "gold-standard test cases" for measured
-evaluation, not pass/fail CI). This script is not part of the pytest
-suite and must never be added to it: every case makes REAL LLM calls
-against whatever provider .env currently configures for the "quality"
-tier (CLAUDE.md > Non-negotiable safety rule 12 — every node that reads
-the patient's raw Arabic message uses that tier: crisis_check,
-extract_symptoms, check_red_flags, assess_sufficiency, diagnose). Same
-"real graph, real calls" reasoning as scripts/try_full_chain_manually.py,
-just run over a fixed, scored case set instead of driven interactively.
-
-One turn can make up to five quality-tier LLM calls (crisis/emergency
-turns stop earlier — see graph.py's own routing). A case with N messages
-sends up to N turns on the same thread_id, so total calls scale with the
-whole case file, not just its length. The estimate is printed and, like
-every other scripts/*_manually.py script, gated behind
-scripts._try_manually_common.confirm_billable_call before anything runs
-— the quality tier this script exercises is never Ollama (CLAUDE.md > LLM
-tiers: "HEALIX_LLM_PROVIDER_QUALITY must never be ollama"), so treat the
-estimate as always-real quota against a hosted provider's free tier
-(CLAUDE.md: "Free-tier providers only"), not literally free to run
-without limit.
-
-Isolation: a dedicated in-memory SqliteSaver, never
-graph.build_checkpointer()'s own dev/prod file — a golden run's
-thread_ids (golden-eval-<case id>) must never mix with real conversation
-state, and re-running the same case twice must start that thread fresh
-rather than resuming leftover state from a previous run.
-
---- Case schema (tests/golden/cases.json): a JSON array of objects —
-
-    id: str                    unique; used to build this run's thread_id
-    category: "emergency" | "diagnosis" | "ambiguous" | "sex_gating" | "crisis"
-    messages: list[str]        patient turns, sent in order on one thread_id
-    patient_sex: "male" | "female" | null
-    expected: dict — shape depends on category:
-        emergency:   {"red_flags": [rule_id, ...]}
-            Pass: the turn reached emergency_node (stage == "emergency")
-            AND every listed rule_id is among the ones that actually
-            fired. Extra rule_ids firing alongside the expected ones are
-            not penalized — real presentations often satisfy more than
-            one rule at once.
-        diagnosis:   {"top_candidate": "<Disease name>"}
-            Pass: the turn reached generate_reports (stage == "diagnosis")
-            AND diagnosis["differential"][0]["name"] equals this exactly.
-            "name", not "name_ar" — the English/Latin key every
-            rag/knowledge_base/*.json entry is keyed by, so the case file
-            doesn't have to duplicate the Arabic translation to state
-            what disease is expected.
-        ambiguous:   {"top_candidate": "insufficient_information"} (informational —
-                      see _evaluate_ambiguous for the actual, more lenient
-                      pass condition)
-        sex_gating:  {"behavior": "excluded" | "follow_up_triggered" | "diagnosed",
-                       "top_candidate": "<Disease name>"}      (only used when behavior == "diagnosed")
-            "diagnosed": reached generate_reports with a real differential
-            (diagnosis["status"] == "differential") — top_candidate checked
-            the same way as the diagnosis category above, when given.
-            "follow_up_triggered": stage == "followup" AND next_question
-            is EXACTLY nodes.rag_retrieve._SEX_CLARIFICATION_QUESTION —
-            not just any follow-up (see "follow_up_other" below).
-            "excluded": reached generate_reports but diagnosis["status"]
-            == "insufficient_information" — the sex-restricted candidate
-            was excluded outright (never asked about, never diagnosed).
-            No excluded-candidate name is required in the case file:
-            candidate_diseases never contains an excluded entry in the
-            first place (nodes/rag_retrieve.py excludes it before
-            construction, not merely downranks it), so there is nothing
-            to name-check here beyond the outcome itself.
-        crisis:      {"is_crisis": true}
-
-Only the FINAL message's outcome is scored. A multi-turn case is free to
-have assess_sufficiency ask a real follow-up on an earlier turn — that's
-expected, normal behavior, not something to special-case. What matters
-is the state after the last message in the list.
-
+"""scripts/run_golden_evaluation.py — measured evaluation of the real graph against the golden test cases in tests/golden/cases.json.
 Run it:
 
     python scripts/run_golden_evaluation.py                    # confirms, then runs every case
@@ -116,26 +39,8 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_CASES_PATH = _REPO_ROOT / "tests" / "golden" / "cases.json"
 _DEFAULT_RESULTS_PATH = _REPO_ROOT / "tests" / "golden" / "results.md"
 
-# Matches scripts/try_full_chain_manually.py's own worst-case-per-turn
-# estimate (crisis_check, extract_symptoms, check_red_flags,
-# assess_sufficiency, diagnose) — an upper bound, not an exact count:
-# crisis/emergency turns stop well before all five run.
 _MAX_LLM_CALLS_PER_TURN = 5
 
-# Default inter-turn pacing. Observed LIVE against the real
-# HEALIX_LLM_PROVIDER_QUALITY=gemini / HEALIX_MODEL_QUALITY=gemini-3.1-flash-lite
-# free tier while validating this script: back-to-back cases hit
-# "429 RESOURCE_EXHAUSTED ... generativelanguage.googleapis.com/generate_content_free_tier_requests,
-# limit: 15" within the first four cases — a single turn already spends up
-# to _MAX_LLM_CALLS_PER_TURN calls, so a handful of turns run
-# back-to-back exhausts a 15-per-minute budget almost immediately.
-# 60s / 15 = 4s minimum spacing; padded to 5s for margin. This only
-# throttles the gap BETWEEN graph.invoke() calls (i.e. between turns/
-# cases) — the up-to-five calls INSIDE one invoke() still fire back-to-
-# back, since llm_client.call_llm() is what would need to change to pace
-# those, which is out of scope here. Configurable because a different
-# provider/model has a different real limit, not because this number is
-# a guess.
 _DEFAULT_PACE_SECONDS = 5.0
 
 _REQUIRED_CASE_KEYS = {"id", "category", "messages", "expected"}
@@ -174,16 +79,7 @@ def _estimate_calls(cases: list[dict]) -> int:
 def _run_case(
     graph, case: dict, *, pace_seconds: float, sleep_before_next_call: list[bool]
 ) -> dict[str, Any]:
-    """Send every message in case["messages"] in order on one thread_id,
-    returning the FINAL turn's full state dict — or {"_error": ...} if a
-    call failed partway through (a real LLMError, not caught by this
-    script's own logic elsewhere).
-
-    sleep_before_next_call is a one-element mutable flag shared across
-    every case in the run: False only for the very first graph.invoke()
-    of the whole run (nothing to pace against yet), True for every one
-    after — see _DEFAULT_PACE_SECONDS for why this pacing exists at all.
-    """
+ 
     thread_id = f"golden-eval-{case['id']}"
     config = {"configurable": {"thread_id": thread_id}}
     result: dict[str, Any] | None = None
@@ -208,13 +104,6 @@ def _run_case(
     assert result is not None  # _load_cases already rejects an empty messages list
     return result
 
-
-# --- per-category evaluators ------------------------------------------------
-# Each returns (passed, actual_summary) — actual_summary is a short,
-# category-specific string for the results.md table; the full state dict
-# is kept separately for the raw debug section.
-
-
 def _top_candidate(state: dict[str, Any]) -> str:
     diagnosis = state.get("diagnosis") or {}
     differential = diagnosis.get("differential") or []
@@ -238,14 +127,7 @@ def _evaluate_diagnosis(case: dict, state: dict[str, Any]) -> tuple[bool, str]:
 
 
 def _evaluate_ambiguous(case: dict, state: dict[str, Any]) -> tuple[bool, str]:
-    """Pass = asked a clarifying question OR honestly returned
-    insufficient_information — never a confident guess (CLAUDE.md >
-    Testing: "Ambiguous cases must produce a clarifying question or
-    insufficient_information — not a guess"). A strict exact-match
-    against expected["top_candidate"] would wrongly fail a case that
-    correctly kept asking instead of settling on
-    insufficient_information within the turns given — that is the
-    RIGHT behavior for this category, not a miss.
+    """Ambiguous cases are not a TEST behavior for this category, not a miss.
     """
     stage = state.get("stage")
     top = _top_candidate(state)
@@ -263,20 +145,10 @@ def _evaluate_sex_gating(case: dict, state: dict[str, Any]) -> tuple[bool, str]:
     if stage == "followup" and next_question == _SEX_CLARIFICATION_QUESTION:
         actual_behavior = "follow_up_triggered"
     elif stage == "followup":
-        # Asked something, but not the sex-clarification question —
-        # e.g. assess_sufficiency's own follow-up loop, not
-        # rag_retrieve's. Distinct from "follow_up_triggered" on
-        # purpose: a sex_gating case expecting that behavior means
-        # specifically the sex question, not any question.
         actual_behavior = "follow_up_other"
     elif stage == "diagnosis" and diagnosis.get("status") == "differential":
         actual_behavior = "diagnosed"
     elif stage == "diagnosis":
-        # Reached the terminal node but with no differential — for a
-        # sex_gating case, this is the sex-restricted candidate having
-        # been excluded outright (state.py: excluded, not merely
-        # downranked, so nothing else clears the match floor here since
-        # these cases share one symptom set with only that one KB match).
         actual_behavior = "excluded"
     else:
         actual_behavior = f"other({stage!r})"

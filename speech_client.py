@@ -109,15 +109,6 @@ _normalize_to_wav = _ffmpeg_normalize_to_wav
 
 def transcribe(audio_bytes: bytes, *, language: str | None = None) -> str:
     """Transcribe audio bytes to text using Whisper (faster-whisper).
-
-    audio_bytes: raw audio file contents (webm, wav, mp3, ogg, …) — always
-        remuxed to WAV first via _normalize_to_wav (see its docstring for
-        why this isn't just "pass the bytes straight to Whisper").
-    language: BCP-47 code passed to Whisper. Defaults to HEALIX_WHISPER_LANGUAGE
-        (ar) — Syrian colloquial is still tagged "ar" by Whisper.
-
-    Returns stripped transcript text, or raises SpeechUnavailable if the
-    audio produced nothing usable.
     """
     if not audio_bytes:
         raise SpeechUnavailable("empty audio payload")
@@ -157,22 +148,8 @@ def transcribe(audio_bytes: bytes, *, language: str | None = None) -> str:
     return text
 
 
-# edge-tts talks to an unofficial Microsoft backend over a websocket, and
-# was observed directly during this feature's integration to occasionally
-# raise edge_tts.exceptions.NoAudioReceived (the connection completes with
-# no audio chunks at all) on a request that succeeds moments later on an
-# identical retry — not a code defect on this side, a transient upstream
-# reliability issue. One retry (two attempts total) absorbs that without
-# hiding a genuinely broken configuration: a real config problem (bad
-# voice name, empty text, edge-tts not installed) fails identically on
-# both attempts, so the retry costs one extra round trip in that case,
-# never a silently-different outcome.
 _SYNTHESIS_MAX_ATTEMPTS = 2
 _SYNTHESIS_RETRY_DELAY_SECONDS = 0.5
-
-# Indirected so tests can drive it without a real wait — same pattern
-# llm_client.py uses for its own retry backoff (`_sleep = time.sleep`
-# there; this module is async, so asyncio.sleep here).
 _async_sleep = asyncio.sleep
 
 

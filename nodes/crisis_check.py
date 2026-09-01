@@ -1,16 +1,3 @@
-"""crisis_check: first node in the graph. Combines a deterministic
-keyword layer (rules.crisis.detect_crisis, raw message only) with an LLM
-layer (quality tier) via OR — never removed or weakened, per this
-project's safety rules. Only sets is_crisis; graph.py routes the actual
-bypass to crisis_node.
-
-The LLM also sees the previous assistant message (one turn of context),
-so a terse reply like "أيوة" can be read against what was just asked —
-the deterministic layer stays raw-message-only, unaffected.
-
-Both verdicts are audit-logged separately (not just the combined result)
-to measure how often each layer catches something the other misses.
-"""
 
 from __future__ import annotations
 

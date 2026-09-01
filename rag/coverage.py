@@ -1,11 +1,6 @@
 """Coverage check: how many rag/knowledge_base/ symptom strings already
 exist in vocabulary/symptoms.py, and which don't.
 
-Mirrors vocabulary/symptoms.py's own completeness check in spirit — this
-module never adds anything to the vocabulary itself, it only reports the
-gap so a human can decide what belongs there (CLAUDE.md > Symptom
-vocabulary: "Do not invent the missing entries").
-
     python -m rag.coverage
 """
 
@@ -84,11 +79,6 @@ if __name__ == "__main__":
     _coverage = check_coverage(_entries)
     write_missing_report(_coverage)
     # name_ar is a required, non-empty schema field (rag/schema.py) — a
-    # truly missing entry already fails loudly at load_all() above, before
-    # this line could even run. Reported anyway, same as
-    # translation_reviewed's own real-KB sanity check
-    # (tests/unit/test_rag_schema.py), as an explicit confirmation rather
-    # than an implicit "it must be fine, nothing crashed" inference.
     _missing_name_ar = [entry.name for entry in _entries if not entry.name_ar]
     print(f"KB entries loaded            : {len(_entries)}")
     print(f"Entries missing name_ar      : {len(_missing_name_ar)}")

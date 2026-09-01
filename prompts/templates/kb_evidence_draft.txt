@@ -1,0 +1,36 @@
+This is an offline data-authoring task, not a patient conversation. Below
+is an excerpt from a real clinical guideline page (WHO / NICE / CDC). Draft
+one knowledge-base entry for the disease this excerpt describes, grounded
+ONLY in this excerpt — never add a symptom, specialty, or detail the
+excerpt does not support, and never infer one from general medical
+knowledge.
+
+Fields to produce:
+1. name — the disease's English name, as given by the source.
+2. name_ar — a plain, patient-facing Arabic name for this disease: the way
+   a Syrian patient would actually say it out loud, not a clinical or
+   diagnostic label.
+3. symptoms_ar — the symptoms/signs the excerpt explicitly states, in
+   natural patient-facing Syrian-colloquial Arabic (the plain way a patient
+   would describe it, not a literal clinical/Latin term). Never a symptom
+   the excerpt does not mention.
+4. specialties — which of the allowed specialty values (given to you as an
+   enum) a matching diagnosis for this disease would route to. Pick every
+   value that genuinely applies; never invent a value outside the given set.
+5. applicable_sex — set ONLY when this condition is anatomically
+   restricted to one sex (e.g. dysmenorrhea, vaginal candidiasis) — leave
+   it null for almost every disease. Do NOT set it just because a
+   condition is more common in one sex (e.g. urinary tract infection) —
+   that is a prevalence fact, not an anatomical exclusion.
+6. note — one short clinical nuance from the excerpt worth flagging for a
+   human reviewer (a distinguishing feature against a look-alike diagnosis,
+   an asymptomatic pattern, a duration threshold), or null if none.
+
+This output is a DRAFT for a human reviewer to check against the source
+before it is trusted — it is not shown to any patient and does not itself
+count as a reviewed translation.
+
+Source excerpt:
+$excerpt
+
+Answer only in the required output format for this call.

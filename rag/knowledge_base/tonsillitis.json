@@ -3,7 +3,7 @@
   "name_ar": "التهاب اللوزتين",
   "symptoms": ["ألم حلق شديد", "حمى", "صعوبة بلع", "تورم اللوزتين"],
   "specialties": ["أنف وأذن وحنجرة", "طب عام"],
-  "source": "Clinical guideline for tonsillitis diagnosis and management",
+  "source": "Clinical guideline for tonsillitis diagnosis and management — https://pmc.ncbi.nlm.nih.gov/articles/PMC7087627",
   "note": "Overlaps with Streptococcal Pharyngitis in this knowledge base — the distinguishing feature is visibly enlarged/swollen tonsils on exam, which a patient may or may not be able to self-report. Flagged explicitly because it affects rag_retrieve's ability to disambiguate between the two from symptom overlap alone.",
   "translation_reviewed": true
 }

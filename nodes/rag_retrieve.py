@@ -117,6 +117,11 @@ def _match_entry(
         "negated_symptoms": sorted(negated_evidence.values()),
         # name_ar/specialties carried forward for route_specialty/generate_reports.
         "specialties": list(entry.specialties),
+        # Never shown to the LLM (diagnose.py's own _format_candidate() does
+        # not include it) — carried through purely as inert metadata for
+        # generate_reports.py's doctor register. See research/RAG_AUDIT.md
+        # section 4: previously captured here and then silently dropped.
+        "source": entry.source,
     }, False
 
 

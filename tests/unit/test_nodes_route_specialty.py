@@ -63,6 +63,12 @@ def test_single_clear_specialty_from_the_top_candidate():
 
 
 # --- insufficient_information: general practice, never a guess ------------------
+#
+# GENERAL_PRACTICE now resolves to Laravel's real "General Medicine" row
+# (SPECIALTY_MAP was extended to route it there deliberately — see that
+# map's own comment), not the plain GENERAL_REFERRAL_PHRASE text these
+# tests used to expect: a patient with insufficient information gets
+# matched to a real bookable doctor, not just a generic notice.
 
 
 def test_insufficient_information_routes_to_general_practice():
@@ -70,7 +76,7 @@ def test_insufficient_information_routes_to_general_practice():
 
     assert result == {
         "specialty": GENERAL_PRACTICE,
-        "specialty_laravel": GENERAL_REFERRAL_PHRASE,
+        "specialty_laravel": GENERAL_PRACTICE,
     }
 
 
@@ -81,7 +87,7 @@ def test_missing_diagnosis_entirely_routes_to_general_practice():
     # node in this project has.
     assert route_specialty({}) == {
         "specialty": GENERAL_PRACTICE,
-        "specialty_laravel": GENERAL_REFERRAL_PHRASE,
+        "specialty_laravel": GENERAL_PRACTICE,
     }
 
 
@@ -93,7 +99,7 @@ def test_differential_status_with_an_empty_list_routes_to_general_practice():
 
     assert result == {
         "specialty": GENERAL_PRACTICE,
-        "specialty_laravel": GENERAL_REFERRAL_PHRASE,
+        "specialty_laravel": GENERAL_PRACTICE,
     }
 
 
@@ -115,13 +121,13 @@ def test_top_candidates_own_multiple_specialties_are_joined():
 
     # specialty (clinical, unchanged) keeps both distinct KB strings.
     assert result["specialty"] == "عصبية، أنف وأذن وحنجرة"
-    # specialty_laravel collapses to ONE value: SPECIALTY_MAP sends both
-    # عصبية and أنف وأذن وحنجرة to the same Laravel specialty (الأمراض
-    # العصبية — see CLAUDE.md > Known limitations, أنف وأذن وحنجرة's own
-    # mapping reasoning), and BPPV genuinely sitting on the neuro-otology
-    # boundary is exactly why that mapping was chosen in the first place.
-    # Deduped, not "الأمراض العصبية، الأمراض العصبية".
-    assert result["specialty_laravel"] == "الأمراض العصبية"
+    # specialty_laravel: عصبية and أنف وأذن وحنجرة now map to TWO
+    # different real Laravel specialties (ENT gained its own row via
+    # 2026_08_17_000002_backfill_specialization_codes_and_missing_specialties.php
+    # — see nodes/route_specialty.py's own LARAVEL_SPECIALTIES comment),
+    # so BPPV genuinely sitting on the neuro-otology boundary now shows
+    # both real specialties instead of collapsing onto neurology alone.
+    assert result["specialty_laravel"] == "الأمراض العصبية، أنف وأذن وحنجرة"
 
 
 def test_a_lower_ranked_candidates_specialty_does_not_leak_into_the_result():
@@ -153,7 +159,7 @@ def test_a_candidate_with_no_specialties_at_all_falls_back_to_general_practice()
 
     assert result == {
         "specialty": GENERAL_PRACTICE,
-        "specialty_laravel": GENERAL_REFERRAL_PHRASE,
+        "specialty_laravel": GENERAL_PRACTICE,
     }
 
 
@@ -190,7 +196,9 @@ _ALL_KB_SPECIALTY_STRINGS = (
 
 
 def test_every_kb_specialty_string_is_accounted_for():
-    assert set(_ALL_KB_SPECIALTY_STRINGS) - {GENERAL_PRACTICE} == set(SPECIALTY_MAP)
+    # GENERAL_PRACTICE is now a normal SPECIALTY_MAP key too (see that
+    # map's own comment) — no longer the one excluded exception.
+    assert set(_ALL_KB_SPECIALTY_STRINGS) == set(SPECIALTY_MAP)
 
 
 def test_every_specialty_map_value_is_a_real_laravel_specialty():
@@ -199,36 +207,54 @@ def test_every_specialty_map_value_is_a_real_laravel_specialty():
     # specializations table would silently fail to find. Also enforced at
     # import time (nodes/route_specialty.py's own module-level assert) —
     # this pins it down as a tested contract too, not just an assertion
-    # nobody's watching.
+    # nobody's watching. Covers GENERAL_PRACTICE too now — it maps to a
+    # real row same as everything else.
     for kb_string in _ALL_KB_SPECIALTY_STRINGS:
-        if kb_string == GENERAL_PRACTICE:
-            continue
         assert SPECIALTY_MAP[kb_string] in LARAVEL_SPECIALTIES, (
-            f"{kb_string!r} maps to a value outside Laravel's real 11 specialties"
+            f"{kb_string!r} maps to a value outside Laravel's real 21 specialties"
         )
 
 
-def test_general_practice_alone_never_maps_to_a_laravel_specialty():
-    # The one deliberate exception (nodes/route_specialty.py's own
-    # docstring): GENERAL_PRACTICE has no real Laravel equivalent and is
-    # NOT forced onto one (Pediatrics would misroute adult patients) —
-    # it resolves to a generic referral phrase instead, which is
-    # intentionally NOT a member of LARAVEL_SPECIALTIES.
-    assert GENERAL_PRACTICE not in SPECIALTY_MAP
-    assert GENERAL_REFERRAL_PHRASE not in LARAVEL_SPECIALTIES
-
+def test_an_unrecognized_specialty_string_still_falls_back_to_the_referral_phrase():
+    # GENERAL_REFERRAL_PHRASE is no longer reached by any of the 19
+    # currently-known KB specialty strings (all of them, including
+    # GENERAL_PRACTICE, now map to a real Laravel specialty), but it must
+    # still exist as a defensive fallback for a future KB entry using a
+    # specialty string nobody has added to SPECIALTY_MAP yet.
     result = route_specialty(
-        _state(differential=[_differential_entry("Influenza", specialties=[GENERAL_PRACTICE])])
+        _state(
+            differential=[_differential_entry("Something New", specialties=["تخصص غير معروف"])]
+        )
     )
 
     assert result["specialty_laravel"] == GENERAL_REFERRAL_PHRASE
 
 
-def test_general_practice_is_dropped_not_replacing_a_real_co_listed_specialty():
+def test_general_practice_now_maps_to_the_real_general_medicine_specialty():
+    # Deliberate product decision (reversing an earlier, narrower design):
+    # Laravel gained a real "General Medicine" row
+    # (2026_08_17_000002_backfill_specialization_codes_and_missing_specialties.php),
+    # so GENERAL_PRACTICE now resolves to it directly — a patient with no
+    # more specific specialty gets matched to a real bookable doctor
+    # instead of only a generic referral phrase.
+    assert GENERAL_PRACTICE in SPECIALTY_MAP
+    assert SPECIALTY_MAP[GENERAL_PRACTICE] == GENERAL_PRACTICE
+    assert GENERAL_PRACTICE in LARAVEL_SPECIALTIES
+
+    result = route_specialty(
+        _state(differential=[_differential_entry("Influenza", specialties=[GENERAL_PRACTICE])])
+    )
+
+    assert result["specialty_laravel"] == GENERAL_PRACTICE
+
+
+def test_general_practice_is_shown_alongside_a_real_co_listed_specialty():
     # rag/knowledge_base/acute_gastroenteritis.json's real shape:
-    # ["هضمية", "طب عام"]. The referral phrase is only for when NOTHING
-    # more specific survives the map — a real co-listed specialty must
-    # still come through on its own.
+    # ["هضمية", "طب عام"]. Both are now real, distinct Laravel
+    # specialties (Gastroenterology and General Medicine), so both come
+    # through — GENERAL_PRACTICE is no longer suppressed in favor of a
+    # more specific co-listed specialty, since it is itself a real,
+    # separately bookable option now, not just a fallback phrase.
     result = route_specialty(
         _state(
             differential=[
@@ -239,8 +265,7 @@ def test_general_practice_is_dropped_not_replacing_a_real_co_listed_specialty():
         )
     )
 
-    assert result["specialty_laravel"] == "الجراحة العامة"
-    assert result["specialty_laravel"] != GENERAL_REFERRAL_PHRASE
+    assert result["specialty_laravel"] == "أمراض الجهاز الهضمي، طب عام"
 
 
 def test_two_kb_specialties_mapping_to_the_same_laravel_value_are_deduped():

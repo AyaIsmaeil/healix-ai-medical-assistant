@@ -1,13 +1,4 @@
 """Single entry point for every LLM call in this service.
-
-CLAUDE.md > Conventions: no node calls a provider SDK directly, and
-provider switching happens here alone. Nodes see `call_llm` and the typed
-exceptions below; everything provider-shaped stays behind `_Provider`.
-
-Deliberately NOT implemented (see the service design notes): no response
-caching, no fallback to a second provider on failure, no streaming. Each
-of those changes the failure semantics of a medical path and needs to be
-decided explicitly rather than inherited from a client library default.
 """
 
 from __future__ import annotations
@@ -29,19 +20,8 @@ from audit.logger import log_llm_call
 load_dotenv()
 
 Tier = Literal["fast", "quality"]
-
-# Clock and sleep are indirected so tests can drive the wall-clock budget
-# deterministically without patching the global `time` module out from under
-# pytest itself.
 _monotonic = time.monotonic
 _sleep = time.sleep
-
-
-# --- exceptions ------------------------------------------------------------
-#
-# Callers in the medical path must never receive a silently degraded
-# result: there is no None return, no default value, no partial object.
-# Either a validated result comes back or one of these is raised.
 
 
 class LLMError(Exception):

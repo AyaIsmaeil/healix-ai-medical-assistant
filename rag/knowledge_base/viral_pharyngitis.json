@@ -3,7 +3,7 @@
   "name_ar": "التهاب الحلق الفيروسي",
   "symptoms": ["التهاب حلق", "سيلان أنف", "سعال", "حمى خفيفة"],
   "specialties": ["أطفال", "طب عام"],
-  "source": "CDC Viral Pharyngitis Clinical Overview",
+  "source": "NICE NG84 — Sore throat (acute): antimicrobial prescribing — https://www.nice.org.uk/guidance/ng84",
   "note": "Absence of severe throat pain, absence of tonsillar swelling, and presence of cough/rhinorrhea distinguish this from both Streptococcal Pharyngitis and Tonsillitis in this knowledge base.",
   "translation_reviewed": true
 }

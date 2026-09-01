@@ -3,7 +3,7 @@
   "name_ar": "السكري من النوع الثاني",
   "symptoms": ["عطش شديد", "تبول متكرر", "تعب", "نقص وزن غير مبرر", "تشوش رؤية"],
   "specialties": ["باطنية", "غدد صماء"],
-  "source": "WHO Diabetes Fact Sheet",
+  "source": "WHO Diabetes Fact Sheet — https://www.who.int/news-room/fact-sheets/detail/diabetes",
   "note": "Often asymptomatic early on — same pattern as hypertension.",
   "translation_reviewed": true
 }

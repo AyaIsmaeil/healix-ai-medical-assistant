@@ -1,23 +1,3 @@
-"""diagnose: ranks state["candidate_diseases"] (from rag_retrieve) into a
-differential, or returns insufficient_information. Reads only the
-already-computed candidate set, never re-derives it from raw symptoms.
-
-The model may only select from the RAG-retrieved candidates, never
-free-generate a name — enforced structurally via a per-turn Literal enum
-(schemas.diagnosis.build_diagnosis_schema), not a prompt instruction.
-
-No numeric confidence from the LLM: ranking uses rag_retrieve's own
-match_score, and the certainty band (high/medium/low) is computed in
-code from it (_certainty_band), never asked of the model.
-
-MAX_CANDIDATES_CONSIDERED / MAX_DIFFERENTIAL_SIZE are absolute caps,
-independent of the knowledge base's current size — bound the LLM-facing
-surface area and the final differential's length regardless of how large
-the KB grows.
-
-Final order is always code-sorted by match_score, never the model's own
-listed order.
-"""
 
 from __future__ import annotations
 
@@ -116,6 +96,10 @@ def diagnose(state: HealixState) -> dict[str, Any]:
             "missing_symptoms": by_name[name]["missing_symptoms"],
             "negated_symptoms": by_name[name]["negated_symptoms"],
             "specialties": by_name[name]["specialties"],
+            # Carried through unchanged; never shown to the LLM (see
+            # rag_retrieve.py's own comment) — generate_reports.py's doctor
+            # register is the only consumer.
+            "source": by_name[name]["source"],
             # Carried through unchanged when ml_corroborate set it; never shown to the LLM.
             **(
                 {"ml_corroboration": by_name[name]["ml_corroboration"]}

@@ -42,6 +42,11 @@ healix_checkpoints.sqlite-wal
 # data/ahd_raw/
 # rag/health_education/data/
 
+# Offline KB-evidence-collection tool output (scripts/collect_kb_evidence.py)
+# — real fetched guideline text + LLM drafts, for human review, never
+# auto-applied to rag/knowledge_base/. See docs/KNOWLEDGE_BASE_METHODOLOGY.md.
+scripts/kb_evidence_output/
+
 # Editors / OS
 .DS_Store
 Thumbs.db

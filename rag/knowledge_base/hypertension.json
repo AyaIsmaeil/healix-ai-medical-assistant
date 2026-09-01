@@ -3,7 +3,7 @@
   "name_ar": "ضغط الدم المرتفع",
   "symptoms": ["صداع", "دوخة"],
   "specialties": ["باطنية", "قلبية"],
-  "source": "WHO Hypertension Fact Sheet",
+  "source": "WHO Hypertension Fact Sheet — https://www.who.int/news-room/fact-sheets/detail/hypertension",
   "note": "Most cases are asymptomatic.",
   "translation_reviewed": true
 }

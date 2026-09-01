@@ -1,35 +1,3 @@
-"""scrape_webteb: يبني مرشحين (candidates) لملفات rag/knowledge_base/*.json
-من موقع ويب طب (webteb.com) — مصدر عربي أصلي، بعكس Mayo Clinic (إنجليزي).
-
-**سكريبت بحث/تحضير، مو أداة إدراج تلقائي.** المخرج JSON يحتاج مراجعة بشرية
-كاملة قبل أي إضافة فعلية لـ rag/knowledge_base/ — نفس معيار translation_reviewed
-المعتمد بالمشروع أصلاً (انظر rag/schema.py). لا شيء هون يُدرج تلقائيًا بقاعدة
-المعرفة.
-
-بنية الموقع (تحقّقت منها فعليًا بفحص HTML خام، مش تخمين):
-  - صفحات فهرس أبجدي: https://www.webteb.com/diseases/list/<حرف عربي مُرمَّز>
-    كل رابط مرض داخلها: <a class="bold" href="/<تخصص>/diseases/<slug>">
-        نص الرابط بصيغة "<الاسم العربي>-<English Name>" (شرطة تفصل بينهم).
-  - صفحة مرض واحد:
-      <h1 class="bold">   = الاسم العربي
-      <h2 class="en-name bold"> = الاسم الإنجليزي
-      <h2> نصه يبدأ بـ"أعراض "  = عنوان قسم الأعراض
-        → الـ<div> الشقيق مباشرة بعده يحوي <p> نص حر + <ul><li> قائمة
-          أعراض نظيفة (هي المطلوبة، مو النص الحر).
-
-خطوتان منفصلتان عمدًا:
-  1. build_directory(): يمشي على الحروف الأبجدية العربية كلها، يبني فهرس
-     {اسم عربي، اسم إنجليزي، رابط} لكل مرض بالموقع، ويحفظه بملف وسيط —
-     عملية بطيئة (~28 صفحة فهرس) تُعمل مرة وحدة، النتيجة تُعاد استخدامها.
-  2. match_and_scrape(): يقارن الفهرس بأسماء الأمراض الإنجليزية المطلوبة
-     (TARGET_DISEASES تحته)، وبس للمتطابقين يزور صفحة المرض ويسحب الأعراض.
-
-التشغيل:
-    python scripts/scrape_webteb.py --build-directory   # مرة أولى فقط
-    python scripts/scrape_webteb.py --scrape            # بعد الفهرسة
-
-الاثنين مع بعض بأمر واحد: python scripts/scrape_webteb.py --all
-"""
 
 from __future__ import annotations
 
@@ -57,20 +25,8 @@ _OUTPUT_DIR = Path(__file__).resolve().parent.parent / "scripts" / "webteb_outpu
 _DIRECTORY_CSV = _OUTPUT_DIR / "webteb_directory.csv"
 _CANDIDATES_JSON = _OUTPUT_DIR / "webteb_candidates.json"
 
-# ---------------------------------------------------------------------------
-# الأمراض المستهدفة: اسم Healix القياسي -> كلمات مفتاحية إنجليزية للمطابقة
-# مع الاسم الإنجليزي المكتوب على ويب طب (قد يختلف الاسم الحرفي، مثلاً
-# ويب طب بيكتب "High Blood Pressure" مش "Hypertension" — المطابقة بالكلمة
-# المفتاحية مش بالمطابقة الحرفية الكاملة).
-#
-# القائمة هون الـ49 مرض كلهم (مو بس الـ19 الناقصين) عمدًا: الهدف مو بس
-# تعويض النقص، إنما كمان الحصول على أعراض عربية من مصدر حقيقي لكل الـ49
-# لمقارنتها مع الأعراض الموجودة أصلًا بـ rag/knowledge_base/*.json —
-# تدقيق إضافي، مو استبدال أعمى. عدّلي هالقاموس بحرية لتضيفي/تشيلي حسب
-# الحاجة.
-# ---------------------------------------------------------------------------
 TARGET_DISEASES: dict[str, list[str]] = {
-    # الـ30 مرض المغطاة أصلًا بداتا CSV (dhivyeshrk) — هون للتدقيق فقط
+    "Acute Bronchial Infection": ["bronchitis"],
     "Acute Bronchitis": ["bronchitis"],
     "Acute Otitis Media": ["otitis media", "ear infection"],
     "Acute Sinusitis": ["sinusitis"],
@@ -136,8 +92,7 @@ def _get(url: str, retries: int = 3, delay: float = 2.0) -> str | None:
 
 
 def build_directory() -> None:
-    """يمشي على كل الحروف الأبجدية العربية، يبني فهرس (اسم عربي، اسم
-    إنجليزي، رابط) لكل الأمراض بالموقع، ويحفظه بـ webteb_directory.csv.
+    """يستعرض ويب طب لكل حرف عربي، يجمع كل أمراضه، ويخزّنها في CSV.
     """
     _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
     seen_urls: set[str] = set()
@@ -175,7 +130,7 @@ def build_directory() -> None:
                 }
             )
 
-        time.sleep(1.5)  # احترام الموقع — تأخير بين كل صفحة فهرس وتانية
+        time.sleep(1.5)  
 
     with open(_DIRECTORY_CSV, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=["arabic_name", "english_name", "url"])
@@ -186,9 +141,7 @@ def build_directory() -> None:
 
 
 def _find_matches(directory: list[dict[str, str]]) -> dict[str, dict[str, str]]:
-    """يقارن كل صف بالفهرس مع TARGET_DISEASES عبر مطابقة كلمة مفتاحية
-    (case-insensitive substring)، لا مطابقة حرفية كاملة — لأن تسميات
-    ويب طب الإنجليزية قد تختلف شكليًا عن أسماء Healix القياسية."""
+
     matches: dict[str, dict[str, str]] = {}
     for row in directory:
         en_lower = row["english_name"].lower()
@@ -203,10 +156,8 @@ def _find_matches(directory: list[dict[str, str]]) -> dict[str, dict[str, str]]:
 
 
 def _extract_symptoms(html: str) -> tuple[str, str, list[str]] | None:
-    """يرجّع (اسم عربي, اسم إنجليزي, قائمة أعراض) أو None لو ما لقى قسم
-    الأعراض. الأعراض تُستخرج حصرًا من عناصر <li> داخل الـdiv الشقيق مباشرة
-    لعنوان <h2> يبدأ بـ"أعراض" — نفس العناصر يلي فحصناها يدويًا على صفحة
-    ارتفاع ضغط الدم كمثال (li واحد = عرَض واحد نظيف، مو فقرة نص حرة)."""
+    """Return (arabic_name, english_name, symptoms) or None if no symptoms section found.
+    """
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup(["script", "style"]):
         tag.decompose()
@@ -239,8 +190,7 @@ def _extract_symptoms(html: str) -> tuple[str, str, list[str]] | None:
 
 
 def match_and_scrape() -> None:
-    """يقرأ webteb_directory.csv (من build_directory)، يطابق مع
-    TARGET_DISEASES، ويزور بس صفحات المرضى المتطابقين لسحب الأعراض."""
+    
     if not _DIRECTORY_CSV.exists():
         raise SystemExit(
             f"لا يوجد {_DIRECTORY_CSV} — شغّلي build_directory() أولًا "
@@ -255,7 +205,7 @@ def match_and_scrape() -> None:
 
     missing = set(TARGET_DISEASES) - set(matches)
     if missing:
-        print("⚠️ ما لقيت تطابق لهاي الأمراض على ويب طب:")
+        print(" ما لقيت تطابق لهاي الأمراض على ويب طب:")
         for name in sorted(missing):
             print(f"  - {name}")
 
@@ -291,7 +241,7 @@ def match_and_scrape() -> None:
         json.dump(candidates, f, ensure_ascii=False, indent=2)
 
     print(f"\nتمّ حفظ {len(candidates)} مرشّح بـ {_CANDIDATES_JSON}")
-    print("⚠️ راجعي كل حقل يدويًا (خصوصًا specialties الفاضية، وصحة الأعراض")
+    print(" راجعي كل حقل يدويًا (خصوصًا specialties الفاضية، وصحة الأعراض")
     print("طبيًا) قبل أي نقل لـ rag/knowledge_base/ — نفس معيار translation_reviewed.")
 
 

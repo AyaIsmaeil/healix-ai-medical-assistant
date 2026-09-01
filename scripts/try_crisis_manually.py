@@ -1,25 +1,3 @@
-"""MANUAL TEST SCRIPT — invokes the real crisis path (crisis_check ->
-crisis_node) end to end, against whatever LLM provider/model is
-currently configured for the "quality" tier in .env.
-
-*** This is NOT part of the pytest suite and must never be added to it. ***
-Unlike scripts/verify_*_enum.py, this has no pass/fail verdict — it exists
-to let a person read the actual response a real message produces. Run it
-by hand:
-
-    python scripts/try_crisis_manually.py "بدي موت"
-    python scripts/try_crisis_manually.py "بدي موت" --yes   # skip the confirmation
-    python scripts/try_crisis_manually.py                   # prompts for a message
-
-The graph runs against a throwaway in-memory SQLite checkpointer built
-directly here, not graph.build_checkpointer() — a one-off manual run has
-no business writing into whatever HEALIX_POSTGRES_DSN / HEALIX_SQLITE_PATH
-point at in .env.
-
-See scripts/try_extract_manually.py for calling a single node directly
-without going through the full graph.
-"""
-
 from __future__ import annotations
 
 import argparse

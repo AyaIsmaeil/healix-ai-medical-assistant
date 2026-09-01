@@ -24,6 +24,13 @@ assumed impossible).
 
 ml_corroboration renders doctor-side only, as a fixed label + disclaimer,
 never a number — the one place that signal is ever turned into text.
+
+Each differential entry's `source` (the KB entry's own cited guideline,
+e.g. "GINA — Global Strategy for Asthma Management") renders doctor-side
+only, verbatim from rag/knowledge_base/*.json via rag_retrieve.py/
+diagnose.py — never shown to the patient, never generated or paraphrased
+by the LLM. See research/RAG_AUDIT.md section 4: previously captured in
+the KB data and then silently dropped before reaching any output.
 """
 
 from __future__ import annotations
@@ -158,6 +165,7 @@ def _format_candidate_doctor(entry: dict[str, Any]) -> str:
         f"  missing: {missing}",
         f"  negated: {negated}",
         f"  specialties: {specialties}",
+        f"  المصدر: {entry.get('source') or _NO_ENTRIES_PLACEHOLDER}",
     ]
     if entry.get("ml_corroboration"):
         lines.append(f"  {_ML_CORROBORATION_LABEL}")

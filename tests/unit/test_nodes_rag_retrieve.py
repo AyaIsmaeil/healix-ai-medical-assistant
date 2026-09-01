@@ -67,6 +67,7 @@ def test_influenzas_exact_symptom_set_is_a_perfect_top_ranked_match():
         "missing_symptoms": [],
         "negated_symptoms": [],
         "specialties": ["طب عام"],
+        "source": "WHO Influenza (Seasonal) Fact Sheet",
     }
 
 
